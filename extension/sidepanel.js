@@ -39,6 +39,14 @@ fetchEditorContent();
 
 refreshEditorBtn.addEventListener("click", fetchEditorContent);
 
+// Auto-update when the content script detects a selection change on the page
+chrome.runtime.onMessage.addListener((message) => {
+  if (message.type === "SELECTION_CHANGED" && message.text) {
+    editorContentEl.value = message.text;
+    editorContentEl.classList.toggle("has-content", true);
+  }
+});
+
 // ─── Settings link ────────────────────────────────────────────────────────
 
 openOptionsEl.addEventListener("click", (e) => {

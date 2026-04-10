@@ -1,3 +1,5 @@
+// ─── Message handler (on-demand reads from the side panel) ───────────────
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "GET_CONTEXT") {
     sendResponse({
@@ -10,6 +12,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "GET_EDITOR_CONTENT") {
     sendResponse({ editor_content: getEditorSelection() });
   }
+});
+
+// ─── Auto-push selection changes to the side panel ───────────────────────
+
+let _debounce = null;
+
+document.addEventListener("selectionchange", () => {
+  clearTimeout(_debounce);
+  _debounce = setTimeout(() => {
+    const text = getEditorSelection();
+    if (text) {
+      chrome.runtime.sendMessage({ type: "SELECTION_CHANGED", text }).catch(() => {});
+    }
+  }, 300);
 });
 
 /**
