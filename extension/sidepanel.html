@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Claude Code Bridge</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      height: 100%;
+    }
+
+    body {
+      background: #1e1e2e;
+      color: #cdd6f4;
+      font-family: system-ui, sans-serif;
+      font-size: 13px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ── Header ── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 14px;
+      border-bottom: 1px solid #313244;
+      flex-shrink: 0;
+    }
+
+    header h1 {
+      font-size: 13px;
+      font-weight: 600;
+      color: #89b4fa;
+      letter-spacing: 0.03em;
+    }
+
+    header a {
+      font-size: 11px;
+      color: #6c7086;
+      text-decoration: none;
+    }
+
+    header a:hover { color: #cdd6f4; }
+
+    /* ── Conversation thread ── */
+    #thread {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .msg {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .msg-label {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .msg.user .msg-label  { color: #89b4fa; }
+    .msg.assistant .msg-label { color: #a6e3a1; }
+
+    .msg-body {
+      background: #181825;
+      border: 1px solid #313244;
+      border-radius: 6px;
+      padding: 8px 10px;
+      font-size: 12px;
+      line-height: 1.55;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .msg.user .msg-body { background: #252535; border-color: #3a3a5c; }
+
+    .msg-body.loading { color: #a6adc8; font-style: italic; }
+    .msg-body.error   { color: #f38ba8; }
+
+    /* ── Empty state ── */
+    #empty-state {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      color: #45475a;
+      padding: 24px;
+      text-align: center;
+    }
+
+    #empty-state .icon { font-size: 28px; }
+    #empty-state p { font-size: 12px; line-height: 1.5; }
+
+    /* ── Input area ── */
+    .input-area {
+      flex-shrink: 0;
+      border-top: 1px solid #313244;
+      padding: 10px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+    }
+
+    /* ── Editor content section ── */
+    .editor-section {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .editor-section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .editor-section-label {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #fab387;
+    }
+
+    .editor-section-header button {
+      background: transparent;
+      border: none;
+      color: #6c7086;
+      font-size: 11px;
+      cursor: pointer;
+      padding: 2px 4px;
+      border-radius: 4px;
+    }
+
+    .editor-section-header button:hover { color: #cdd6f4; background: #313244; }
+
+    textarea#editor-content {
+      width: 100%;
+      height: 64px;
+      background: #1a1a2e;
+      border: 1px solid #45475a;
+      border-radius: 6px;
+      color: #fab387;
+      padding: 7px 8px;
+      font-size: 12px;
+      font-family: ui-monospace, "Cascadia Code", "Fira Code", monospace;
+      resize: vertical;
+      outline: none;
+      line-height: 1.45;
+    }
+
+    textarea#editor-content:focus { border-color: #fab387; }
+    textarea#editor-content::placeholder { color: #45475a; font-style: italic; font-family: system-ui, sans-serif; }
+
+    textarea#editor-content.has-content { border-color: #6c5a45; }
+
+    textarea#prompt {
+      width: 100%;
+      height: 72px;
+      background: #313244;
+      border: 1px solid #45475a;
+      border-radius: 6px;
+      color: #cdd6f4;
+      padding: 8px;
+      font-size: 13px;
+      font-family: inherit;
+      resize: none;
+      outline: none;
+      line-height: 1.45;
+    }
+
+    textarea#prompt:focus { border-color: #89b4fa; }
+
+    .controls {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+
+    button#submit {
+      flex: 1;
+      background: #5c6bc0;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 7px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    button#submit:hover:not(:disabled) { background: #7986cb; }
+    button#submit:disabled { background: #45475a; cursor: not-allowed; }
+
+    label.stream-toggle {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      color: #6c7086;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    button#clear-history {
+      background: transparent;
+      color: #6c7086;
+      border: 1px solid #45475a;
+      border-radius: 6px;
+      padding: 6px 9px;
+      font-size: 11px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    button#clear-history:hover { color: #cdd6f4; border-color: #6c7086; }
+
+    /* Scrollbar */
+    #thread::-webkit-scrollbar { width: 4px; }
+    #thread::-webkit-scrollbar-track { background: transparent; }
+    #thread::-webkit-scrollbar-thumb { background: #45475a; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Claude Code Bridge</h1>
+    <a href="#" id="open-options">Settings</a>
+  </header>
+
+  <div id="thread">
+    <div id="empty-state">
+      <div class="icon">✦</div>
+      <p>Ask Claude anything about the current page.<br/>Ctrl+Enter to send.</p>
+    </div>
+  </div>
+
+  <div class="input-area">
+    <div class="editor-section">
+      <div class="editor-section-header">
+        <span class="editor-section-label">Editor selection</span>
+        <button id="refresh-editor" title="Re-capture editor selection from the active tab">↺ Refresh</button>
+      </div>
+      <textarea
+        id="editor-content"
+        placeholder="No editor selection detected — highlight code on the page then click Refresh"
+        spellcheck="false"
+      ></textarea>
+    </div>
+
+    <textarea id="prompt" placeholder="Ask Claude anything about this page…"></textarea>
+    <div class="controls">
+      <button id="submit">Send</button>
+      <label class="stream-toggle">
+        <input type="checkbox" id="use-stream" checked /> Stream
+      </label>
+      <button id="clear-history" title="Clear conversation">Clear</button>
+    </div>
+  </div>
+
+  <script src="sidepanel.js"></script>
+</body>
+</html>

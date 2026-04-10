@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Claude Code Bridge</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      width: 400px;
+      min-height: 200px;
+      background: #1e1e2e;
+      color: #cdd6f4;
+      font-family: system-ui, sans-serif;
+      font-size: 13px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    header h1 {
+      font-size: 13px;
+      font-weight: 600;
+      color: #89b4fa;
+      letter-spacing: 0.03em;
+    }
+
+    header a {
+      font-size: 11px;
+      color: #6c7086;
+      text-decoration: none;
+    }
+
+    header a:hover { color: #cdd6f4; }
+
+    textarea#prompt {
+      width: 100%;
+      height: 80px;
+      background: #313244;
+      border: 1px solid #45475a;
+      border-radius: 6px;
+      color: #cdd6f4;
+      padding: 8px;
+      font-size: 13px;
+      resize: vertical;
+      outline: none;
+    }
+
+    textarea#prompt:focus { border-color: #89b4fa; }
+
+    .controls {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+
+    button#submit {
+      flex: 1;
+      background: #5c6bc0;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 7px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    button#submit:hover:not(:disabled) { background: #7986cb; }
+    button#submit:disabled { background: #45475a; cursor: not-allowed; }
+
+    button#clear-history {
+      background: #313244;
+      color: #6c7086;
+      border: 1px solid #45475a;
+      border-radius: 6px;
+      padding: 7px 10px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    button#clear-history:hover { color: #cdd6f4; border-color: #6c7086; }
+
+    label.stream-toggle {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+      color: #6c7086;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    #result {
+      background: #181825;
+      border: 1px solid #313244;
+      border-radius: 6px;
+      padding: 8px;
+      font-size: 12px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+      min-height: 60px;
+      max-height: 300px;
+      overflow-y: auto;
+      color: #cdd6f4;
+    }
+
+    #result.empty { color: #45475a; }
+    #result.error { color: #f38ba8; }
+    #result.loading { color: #a6adc8; font-style: italic; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Claude Code Bridge</h1>
+    <a href="#" id="open-options">Settings</a>
+  </header>
+
+  <textarea id="prompt" placeholder="Ask Claude anything about this page…"></textarea>
+
+  <div class="controls">
+    <button id="submit">Run</button>
+    <label class="stream-toggle">
+      <input type="checkbox" id="use-stream" checked /> Stream
+    </label>
+    <button id="clear-history" title="Clear conversation history">Clear history</button>
+  </div>
+
+  <div id="result" class="empty">Response will appear here…</div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
