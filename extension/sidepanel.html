@@ -88,6 +88,85 @@
     .msg-body.loading { color: #a6adc8; font-style: italic; }
     .msg-body.error   { color: #f38ba8; }
 
+    /* ── Code blocks inside responses ── */
+    .msg-body .code-block {
+      position: relative;
+      margin: 6px 0;
+    }
+
+    .msg-body .code-block pre {
+      background: #11111b;
+      border: 1px solid #313244;
+      border-radius: 5px;
+      padding: 8px 10px;
+      margin: 0;
+      font-size: 11.5px;
+      font-family: ui-monospace, "Cascadia Code", "Fira Code", monospace;
+      line-height: 1.5;
+      overflow-x: auto;
+      white-space: pre;
+      color: #cdd6f4;
+    }
+
+    .msg-body .code-block-lang {
+      position: absolute;
+      top: 4px;
+      right: 6px;
+      font-size: 9px;
+      color: #585b70;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      pointer-events: none;
+    }
+
+    .msg-body .code-block-actions {
+      display: flex;
+      gap: 5px;
+      margin-top: 4px;
+    }
+
+    .msg-body .code-block-actions button {
+      background: #313244;
+      color: #a6adc8;
+      border: 1px solid #45475a;
+      border-radius: 5px;
+      padding: 3px 10px;
+      font-size: 11px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .msg-body .code-block-actions button:hover {
+      color: #cdd6f4;
+      border-color: #6c7086;
+    }
+
+    .msg-body .code-block-actions .btn-replace {
+      color: #a6e3a1;
+      border-color: #3a5c3a;
+    }
+
+    .msg-body .code-block-actions .btn-replace:hover {
+      background: #1e3a1e;
+      border-color: #a6e3a1;
+    }
+
+    .msg-body .code-block-actions .btn-undo {
+      color: #fab387;
+      border-color: #5c4a3a;
+    }
+
+    .msg-body .code-block-actions .btn-undo:hover {
+      background: #3a2a1e;
+      border-color: #fab387;
+    }
+
+    .msg-body .code-block-actions .btn-done {
+      color: #585b70;
+      border-color: transparent;
+      cursor: default;
+    }
+
     /* ── Empty state ── */
     #empty-state {
       flex: 1;
@@ -113,59 +192,6 @@
       flex-direction: column;
       gap: 7px;
     }
-
-    /* ── Editor content section ── */
-    .editor-section {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-    }
-
-    .editor-section-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-
-    .editor-section-label {
-      font-size: 10px;
-      font-weight: 600;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      color: #fab387;
-    }
-
-    .editor-section-header button {
-      background: transparent;
-      border: none;
-      color: #6c7086;
-      font-size: 11px;
-      cursor: pointer;
-      padding: 2px 4px;
-      border-radius: 4px;
-    }
-
-    .editor-section-header button:hover { color: #cdd6f4; background: #313244; }
-
-    textarea#editor-content {
-      width: 100%;
-      height: 64px;
-      background: #1a1a2e;
-      border: 1px solid #45475a;
-      border-radius: 6px;
-      color: #fab387;
-      padding: 7px 8px;
-      font-size: 12px;
-      font-family: ui-monospace, "Cascadia Code", "Fira Code", monospace;
-      resize: vertical;
-      outline: none;
-      line-height: 1.45;
-    }
-
-    textarea#editor-content:focus { border-color: #fab387; }
-    textarea#editor-content::placeholder { color: #45475a; font-style: italic; font-family: system-ui, sans-serif; }
-
-    textarea#editor-content.has-content { border-color: #6c5a45; }
 
     textarea#prompt {
       width: 100%;
@@ -249,18 +275,6 @@
   </div>
 
   <div class="input-area">
-    <div class="editor-section">
-      <div class="editor-section-header">
-        <span class="editor-section-label">Editor selection</span>
-        <button id="refresh-editor" title="Re-capture editor selection from the active tab">↺ Refresh</button>
-      </div>
-      <textarea
-        id="editor-content"
-        placeholder="No editor selection detected — highlight code on the page then click Refresh"
-        spellcheck="false"
-      ></textarea>
-    </div>
-
     <textarea id="prompt" placeholder="Ask Claude anything about this page…"></textarea>
     <div class="controls">
       <button id="submit">Send</button>

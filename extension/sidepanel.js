@@ -5,8 +5,6 @@ const emptyState = document.getElementById("empty-state");
 const useStreamEl = document.getElementById("use-stream");
 const clearHistoryBtn = document.getElementById("clear-history");
 const openOptionsEl = document.getElementById("open-options");
-const editorContentEl = document.getElementById("editor-content");
-const refreshEditorBtn = document.getElementById("refresh-editor");
 
 // ─── Restore conversation thread from session storage on open ─────────────
 
@@ -20,32 +18,6 @@ const refreshEditorBtn = document.getElementById("refresh-editor");
   }
   if (history.length) hideEmptyState();
 })();
-
-// ─── Editor content — auto-fetch on open, manual refresh ─────────────────
-
-async function fetchEditorContent() {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  try {
-    const res = await chrome.tabs.sendMessage(tab.id, { type: "GET_EDITOR_CONTENT" });
-    const text = res?.editor_content?.trim() || "";
-    editorContentEl.value = text;
-    editorContentEl.classList.toggle("has-content", text.length > 0);
-  } catch {
-    // Tab has no content script (chrome:// pages, etc.) — leave empty
-  }
-}
-
-fetchEditorContent();
-
-refreshEditorBtn.addEventListener("click", fetchEditorContent);
-
-// Auto-update when the content script detects a selection change on the page
-chrome.runtime.onMessage.addListener((message) => {
-  if (message.type === "SELECTION_CHANGED" && message.text) {
-    editorContentEl.value = message.text;
-    editorContentEl.classList.toggle("has-content", true);
-  }
-});
 
 // ─── Settings link ────────────────────────────────────────────────────────
 
@@ -84,10 +56,6 @@ submitBtn.addEventListener("click", async () => {
   } catch {
     // Tab may not have a content script (e.g. chrome:// pages)
   }
-
-  // Attach editor content if present
-  const editorContent = editorContentEl.value.trim();
-  if (editorContent) context.editor_content = editorContent;
 
   const useStream = useStreamEl.checked;
   const { model = "" } = await chrome.storage.local.get("model");
@@ -181,7 +149,11 @@ function appendMessage(role, text, extraClass = "") {
 
   const body = document.createElement("div");
   body.className = `msg-body${extraClass ? " " + extraClass : ""}`;
-  body.textContent = text;
+  if (role === "assistant" && !extraClass) {
+    renderMessageContent(body, text, true);
+  } else {
+    body.textContent = text;
+  }
 
   wrap.appendChild(label);
   wrap.appendChild(body);
@@ -192,8 +164,100 @@ function appendMessage(role, text, extraClass = "") {
 
 function updateMessage(bodyEl, text, isError = false) {
   bodyEl.className = isError ? "msg-body error" : "msg-body";
-  bodyEl.textContent = text || "";
+  renderMessageContent(bodyEl, text || "", !isError);
 }
+
+// ─── Code block parsing + Replace in editor ──────────────────────────────
+
+/**
+ * Render response text, detecting ```fenced code blocks``` and adding
+ * "Replace in editor" buttons to each one.
+ */
+function renderMessageContent(bodyEl, text, isAssistant) {
+  bodyEl.innerHTML = "";
+
+  if (!isAssistant || !text.includes("```")) {
+    bodyEl.textContent = text;
+    return;
+  }
+
+  // Split on fenced code blocks:  ```lang\ncode\n```
+  const parts = text.split(/(```[\s\S]*?```)/g);
+
+  for (const part of parts) {
+    if (part.startsWith("```") && part.endsWith("```")) {
+      // Extract optional language hint and code body
+      const inner = part.slice(3, -3);
+      const newline = inner.indexOf("\n");
+      const lang = newline > 0 ? inner.slice(0, newline).trim() : "";
+      const code = newline > 0 ? inner.slice(newline + 1) : inner;
+
+      const block = document.createElement("div");
+      block.className = "code-block";
+
+      if (lang) {
+        const langTag = document.createElement("span");
+        langTag.className = "code-block-lang";
+        langTag.textContent = lang;
+        block.appendChild(langTag);
+      }
+
+      const pre = document.createElement("pre");
+      const codeEl = document.createElement("code");
+      codeEl.textContent = code;
+      pre.appendChild(codeEl);
+      block.appendChild(pre);
+
+      // Action buttons
+      const actions = document.createElement("div");
+      actions.className = "code-block-actions";
+
+      const replaceBtn = document.createElement("button");
+      replaceBtn.className = "btn-replace";
+      replaceBtn.textContent = "↻ Replace in editor";
+      replaceBtn.addEventListener("click", () => handleReplace(replaceBtn, code));
+      actions.appendChild(replaceBtn);
+
+      const copyBtn = document.createElement("button");
+      copyBtn.textContent = "Copy";
+      copyBtn.addEventListener("click", () => {
+        navigator.clipboard.writeText(code);
+        copyBtn.textContent = "Copied";
+        setTimeout(() => { copyBtn.textContent = "Copy"; }, 1500);
+      });
+      actions.appendChild(copyBtn);
+
+      block.appendChild(actions);
+      bodyEl.appendChild(block);
+    } else if (part.trim()) {
+      const span = document.createElement("span");
+      span.textContent = part;
+      bodyEl.appendChild(span);
+    }
+  }
+}
+
+/**
+ * Replace the current editor selection on the active tab with `newCode`.
+ * Routes through background.js which uses executeScript(MAIN world).
+ * Shows an Undo button for 5 seconds.
+ */
+async function handleReplace(btn, newCode) {
+  btn.textContent = "…";
+
+  const res = await chrome.runtime.sendMessage({ type: "REPLACE_CODE", code: newCode });
+
+  if (!res?.ok) {
+    btn.textContent = "Failed";
+    setTimeout(() => { btn.textContent = "↻ Replace in editor"; btn.className = "btn-replace"; }, 2000);
+    return;
+  }
+
+  btn.textContent = "✓ Replaced";
+  btn.className = "btn-done";
+}
+
+// ─── UI helpers ──────────────────────────────────────────────────────────
 
 function hideEmptyState() {
   emptyState.style.display = "none";

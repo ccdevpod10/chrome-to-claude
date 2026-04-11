@@ -1,6 +1,8 @@
 import json
+import os
 import shutil
 import subprocess
+import tempfile
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -44,11 +46,19 @@ class TaskRequest(BaseModel):
     model: str = ""  # optional model override, e.g. "claude-opus-4-6"
 
 
-def build_cmd(full_prompt: str, model: str) -> list[str]:
-    cmd = [CLAUDE_BIN, "-p", full_prompt, "--output-format", "text"]
-    if model:
-        cmd += ["--model", model]
-    return cmd
+def run_claude(full_prompt: str, model: str, output_format: str = "text") -> subprocess.CompletedProcess:
+    """Run claude -p, piping the prompt via a temp file to avoid OS ARG_MAX limits."""
+    tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8")
+    try:
+        tmp.write(full_prompt)
+        tmp.close()
+        cmd = [CLAUDE_BIN, "-p", "--output-format", output_format]
+        if model:
+            cmd += ["--model", model]
+        with open(tmp.name) as stdin_file:
+            return subprocess.run(cmd, stdin=stdin_file, capture_output=True, text=True, timeout=120)
+    finally:
+        os.unlink(tmp.name)
 
 
 @app.get("/health")
@@ -60,12 +70,7 @@ def health():
 def run_task(req: TaskRequest):
     ctx = {**req.context, "history": req.history}
     full_prompt = assemble(req.prompt, ctx)
-    result = subprocess.run(
-        build_cmd(full_prompt, req.model),
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
+    result = run_claude(full_prompt, req.model)
     return {"result": result.stdout, "error": result.stderr}
 
 
@@ -75,16 +80,22 @@ def run_task_stream(req: TaskRequest):
     full_prompt = assemble(req.prompt, ctx)
 
     def event_generator():
+        tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8")
         try:
-            stream_cmd = [CLAUDE_BIN, "-p", full_prompt, "--output-format", "stream-json"]
+            tmp.write(full_prompt)
+            tmp.close()
+            stream_cmd = [CLAUDE_BIN, "-p", "--output-format", "stream-json"]
             if req.model:
                 stream_cmd += ["--model", req.model]
+            stdin_file = open(tmp.name)
             process = subprocess.Popen(
                 stream_cmd,
+                stdin=stdin_file,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
             )
+            stdin_file.close()
             for line in process.stdout:
                 line = line.strip()
                 if not line:
@@ -102,6 +113,8 @@ def run_task_stream(req: TaskRequest):
             process.wait()
         except Exception as e:
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        finally:
+            os.unlink(tmp.name)
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")

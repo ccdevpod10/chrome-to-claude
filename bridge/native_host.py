@@ -5,11 +5,12 @@ Chrome spawns this process directly and communicates via stdin/stdout
 using 4-byte little-endian length-prefixed JSON messages.
 """
 import json
+import os
 import shutil
 import struct
 import subprocess
 import sys
-import os
+import tempfile
 
 # Ensure bridge/ is on the path so context_assembler can be imported
 sys.path.insert(0, os.path.dirname(__file__))
@@ -66,12 +67,21 @@ def main() -> None:
             ctx = {**context, "history": history}
             full_prompt = assemble(prompt, ctx)
 
-            result = subprocess.run(
-                [CLAUDE_BIN, "-p", full_prompt, "--output-format", "text"],
-                capture_output=True,
-                text=True,
-                timeout=120,
-            )
+            # Write prompt to temp file and pipe via stdin to avoid OS ARG_MAX limits
+            tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8")
+            tmp.write(full_prompt)
+            tmp.close()
+            try:
+                with open(tmp.name) as stdin_file:
+                    result = subprocess.run(
+                        [CLAUDE_BIN, "-p", "--output-format", "text"],
+                        stdin=stdin_file,
+                        capture_output=True,
+                        text=True,
+                        timeout=120,
+                    )
+            finally:
+                os.unlink(tmp.name)
             send_message({"result": result.stdout, "error": result.stderr})
         except Exception as e:
             send_message({"result": "", "error": str(e)})

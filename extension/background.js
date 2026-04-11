@@ -78,12 +78,211 @@ function handleTaskNative(payload) {
 
 // ─── Message router ───────────────────────────────────────────────────────
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "RUN_TASK") {
     handleTask(message.payload).then(sendResponse);
-    return true; // keep channel open for async response
+    return true;
+  }
+
+  // Inline tooltip: user clicked an action (Improve, Audit, Fix, Explain)
+  if (message.type === "CODE_ACTION") {
+    handleCodeAction(message, sender).then(sendResponse);
+    return true;
+  }
+
+  // Inline tooltip: user clicked Replace on a code block
+  if (message.type === "REPLACE_CODE") {
+    handleReplaceCode(message, sender).then(sendResponse);
+    return true;
+  }
+
+  // Inline tooltip: content.js needs MAIN-world selection read
+  if (message.type === "READ_SELECTION") {
+    handleReadSelection(sender).then(sendResponse);
+    return true;
   }
 });
+
+// ─── Inline tooltip: CODE_ACTION ──────────────────────────────────────────
+
+async function handleCodeAction(message, sender) {
+  const tabId = sender.tab?.id;
+  if (!tabId) return { error: "No tab" };
+
+  // Read the full selection from the MAIN world (handles Monaco, CodeMirror, etc.)
+  let fullCode = message.code || "";
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId, allFrames: true },
+      world: "MAIN",
+      func: readSelection,
+    });
+    for (const r of results || []) {
+      const text = r?.result;
+      if (text && text.length > fullCode.length) { fullCode = text; break; }
+    }
+  } catch { /* use what content.js sent */ }
+
+  // Build prompt with the action
+  const action = message.action || "Improve";
+  const prompt = `${action} this code`;
+  const context = {
+    url: message.url || "",
+    title: message.title || "",
+    editor_content: fullCode,
+  };
+
+  const response = await handleTask({ prompt, context });
+
+  // Forward result to the content script's response popup
+  try {
+    await chrome.tabs.sendMessage(tabId, {
+      type: "CODE_ACTION_RESULT",
+      action,
+      result: response.result || "",
+      error: response.error || "",
+    });
+  } catch { /* tab may have closed */ }
+
+  return response;
+}
+
+// ─── Inline tooltip: READ_SELECTION (MAIN world) ──────────────────────────
+
+async function handleReadSelection(sender) {
+  const tabId = sender.tab?.id;
+  if (!tabId) return { text: "" };
+
+  try {
+    // Try the specific frame first (sender.frameId), then all frames
+    const frameId = sender.frameId;
+    const results = await chrome.scripting.executeScript({
+      target: { tabId, allFrames: true },
+      world: "MAIN",
+      func: readSelection,
+    });
+    // Return the first non-empty result from any frame
+    for (const r of results || []) {
+      const text = r?.result;
+      if (text && text.trim().length > 0) return { text };
+    }
+    return { text: "" };
+  } catch {
+    return { text: "" };
+  }
+}
+
+// ─── Inline tooltip: REPLACE_CODE ─────────────────────────────────────────
+
+async function handleReplaceCode(message, sender) {
+  const tabId = sender.tab?.id;
+  if (!tabId) return { ok: false };
+
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId, allFrames: true },
+      world: "MAIN",
+      func: writeSelection,
+      args: [message.code],
+    });
+    // Any frame that returned true means success
+    for (const r of results || []) {
+      if (r?.result === true) return { ok: true };
+    }
+    return { ok: false };
+  } catch {
+    return { ok: false };
+  }
+}
+
+// ─── Editor read/write (serialised, injected into page MAIN world) ────────
+
+function readSelection() {
+  try {
+    if (window.monaco?.editor) {
+      for (const e of window.monaco.editor.getEditors()) {
+        const s = e.getSelection();
+        if (s && !s.isEmpty()) return e.getModel()?.getValueInRange(s) || "";
+      }
+    }
+  } catch {}
+  try {
+    for (const el of document.querySelectorAll(".cm-editor")) {
+      if (el?.cmView?.view) {
+        const v = el.cmView.view;
+        const { from, to } = v.state.selection.main;
+        if (from !== to) return v.state.sliceDoc(from, to);
+      }
+    }
+  } catch {}
+  try {
+    for (const el of document.querySelectorAll(".CodeMirror")) {
+      if (el?.CodeMirror) { const t = el.CodeMirror.getSelection(); if (t) return t; }
+    }
+  } catch {}
+  try {
+    for (const el of document.querySelectorAll(".ace_editor")) {
+      if (el?.env?.editor) { const t = el.env.editor.getSelectedText(); if (t) return t; }
+    }
+  } catch {}
+  try {
+    const el = document.activeElement;
+    if (el && (el.tagName === "TEXTAREA" || (el.tagName === "INPUT" && el.type === "text")))
+      if (el.selectionStart !== el.selectionEnd) return el.value.substring(el.selectionStart, el.selectionEnd);
+  } catch {}
+  return window.getSelection()?.toString() || "";
+}
+
+function writeSelection(text) {
+  try {
+    if (window.monaco?.editor) {
+      for (const e of window.monaco.editor.getEditors()) {
+        const s = e.getSelection();
+        if (s && !s.isEmpty()) {
+          e.executeEdits("claude-bridge", [{ range: s, text, forceMoveMarkers: true }]);
+          return true;
+        }
+      }
+    }
+  } catch {}
+  try {
+    for (const el of document.querySelectorAll(".cm-editor")) {
+      if (el?.cmView?.view) {
+        const v = el.cmView.view;
+        const { from, to } = v.state.selection.main;
+        if (from !== to) { v.dispatch({ changes: { from, to, insert: text } }); return true; }
+      }
+    }
+  } catch {}
+  try {
+    for (const el of document.querySelectorAll(".CodeMirror")) {
+      if (el?.CodeMirror && el.CodeMirror.getSelection()) { el.CodeMirror.replaceSelection(text); return true; }
+    }
+  } catch {}
+  try {
+    for (const el of document.querySelectorAll(".ace_editor")) {
+      if (el?.env?.editor && el.env.editor.getSelectedText()) {
+        el.env.editor.session.replace(el.env.editor.getSelectionRange(), text);
+        return true;
+      }
+    }
+  } catch {}
+  try {
+    const el = document.activeElement;
+    if (el && (el.tagName === "TEXTAREA" || (el.tagName === "INPUT" && el.type === "text"))) {
+      if (el.selectionStart !== el.selectionEnd) {
+        el.setRangeText(text, el.selectionStart, el.selectionEnd, "end");
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        return true;
+      }
+    }
+  } catch {}
+  try {
+    const sel = window.getSelection();
+    if (sel && !sel.isCollapsed) { document.execCommand("insertText", false, text); return true; }
+  } catch {}
+  return false;
+}
 
 async function handleTask(payload) {
   // Load conversation history and settings
