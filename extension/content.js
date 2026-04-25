@@ -105,7 +105,7 @@
     responseEl.innerHTML = `
       <div class="cb-response-header">
         <span>Claude — ${action}</span>
-        <button class="cb-dismiss" onclick="this.closest('.cb-response').remove()">✕</button>
+        <button class="cb-dismiss">✕</button>
       </div>
       <div class="cb-response-body"><span class="cb-spinner"></span> Thinking…</div>
     `;
