@@ -6,6 +6,9 @@
 // All tooltip DOM lives inside a shadow root to avoid style conflicts.
 
 (() => {
+  if (window.__cbInjected) return;
+  window.__cbInjected = true;
+
   // ── State ────────────────────────────────────────────────────────────────
 
   let hostEl = null;       // <div> attached to document.body
@@ -113,7 +116,10 @@
   }
 
   function hideResponse() {
-    if (responseEl) { responseEl.remove(); responseEl = null; }
+    // Use a more reliable way to clear all response popups
+    const responses = shadow.querySelectorAll('.cb-response');
+    responses.forEach(el => el.remove());
+    responseEl = null;
   }
 
   // ── Render Claude's response with code blocks ────────────────────────────
@@ -205,6 +211,11 @@
   // ── Actions → background.js ──────────────────────────────────────────────
 
   function onAction(action, code) {
+    if (!chrome.runtime?.sendMessage) {
+      showResponse("Extension context invalidated. Please reload the page.", action);
+      return;
+    }
+    hideToolbar(); // Hide toolbar immediately when action is clicked to prevent flickering
     showLoading(action);
     chrome.runtime.sendMessage({
       type: "CODE_ACTION",
@@ -218,6 +229,10 @@
   }
 
   function onReplace(btn, code) {
+    if (!chrome.runtime?.sendMessage) {
+      btn.textContent = "✗ Error";
+      return;
+    }
     btn.textContent = "…";
     chrome.runtime.sendMessage({ type: "REPLACE_CODE", code }).then((res) => {
       if (res?.ok) {
@@ -275,23 +290,27 @@
 
       // 2. No DOM selection — ask background.js to read from MAIN world
       //    (handles Monaco, CodeMirror, ACE whose selections are internal)
-      chrome.runtime.sendMessage({ type: "READ_SELECTION" }).then((res) => {
-        const text = res?.text?.trim() || "";
-        if (text.length >= 10) {
-          // Use mouse position to build a synthetic rect for positioning
-          const rect = {
-            left: lastMousePos.x - 100,
-            right: lastMousePos.x + 100,
-            top: lastMousePos.y - 20,
-            bottom: lastMousePos.y,
-            width: 200,
-            height: 20,
-          };
-          showToolbar(rect, text);
-        } else {
-          hideToolbar();
-        }
-      }).catch(() => {});
+      if (chrome.runtime && chrome.runtime.sendMessage) {
+        chrome.runtime.sendMessage({ type: "READ_SELECTION" }).then((res) => {
+          const text = res?.text?.trim() || "";
+          if (text.length >= 10) {
+            // Use mouse position to build a synthetic rect for positioning
+            const rect = {
+              left: lastMousePos.x - 100,
+              right: lastMousePos.x + 100,
+              top: lastMousePos.y - 20,
+              bottom: lastMousePos.y,
+              width: 200,
+              height: 20,
+            };
+            showToolbar(rect, text);
+          } else {
+            hideToolbar();
+          }
+        }).catch(() => {});
+      } else {
+        hideToolbar();
+      }
     }, 400);
   }
 
