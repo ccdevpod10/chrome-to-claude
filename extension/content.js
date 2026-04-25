@@ -116,9 +116,8 @@
   }
 
   function hideResponse() {
-    // Use a more reliable way to clear all response popups
-    const responses = shadow.querySelectorAll('.cb-response');
-    responses.forEach(el => el.remove());
+    if (!shadow) return;
+    shadow.querySelectorAll('.cb-response').forEach(el => el.remove());
     responseEl = null;
   }
 
