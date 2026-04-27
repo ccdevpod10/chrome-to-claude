@@ -58,9 +58,14 @@ submitBtn.addEventListener("click", async () => {
   }
 
   const useStream = useStreamEl.checked;
-  const { model = "" } = await chrome.storage.local.get("model");
+  const { model = "", activeProvider = "claude-cli" } = await chrome.storage.local.get([
+    "model",
+    "activeProvider",
+  ]);
 
-  if (useStream) {
+  // Streaming only works through the Claude CLI bridge endpoint.
+  // For other providers, fall back to non-streaming via background routing.
+  if (useStream && activeProvider === "claude-cli") {
     await runTaskStreaming(prompt, context, model, pendingEl);
   } else {
     const result = await chrome.runtime.sendMessage({
@@ -243,13 +248,19 @@ function renderMessageContent(bodyEl, text, isAssistant) {
  * Shows an Undo button for 5 seconds.
  */
 async function handleReplace(btn, newCode) {
+  if (btn.disabled) return;
+  btn.disabled = true;
   btn.textContent = "…";
 
-  const res = await chrome.runtime.sendMessage({ type: "REPLACE_CODE", code: newCode });
+  const res = await chrome.runtime.sendMessage({ type: "REPLACE_CODE", code: newCode }).catch(() => null);
 
   if (!res?.ok) {
     btn.textContent = "Failed";
-    setTimeout(() => { btn.textContent = "↻ Replace in editor"; btn.className = "btn-replace"; }, 2000);
+    setTimeout(() => {
+      btn.textContent = "↻ Replace in editor";
+      btn.className = "btn-replace";
+      btn.disabled = false;
+    }, 2000);
     return;
   }
 

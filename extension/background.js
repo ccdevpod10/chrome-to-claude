@@ -47,16 +47,41 @@ async function handleTaskHttp(payload) {
 }
 
 // ─── Native Messaging (Phase 4) ───────────────────────────────────────────
+// Concurrent requests share one port. Each carries a request_id; the Python
+// host echoes it back so we can route responses to the right resolver.
+// Without this, parallel requests would scramble responses.
 
 let nativePort = null;
+const pendingResolvers = new Map(); // request_id → resolve fn
+let nextRequestId = 1;
+
+function rejectAllPending(reason) {
+  for (const r of pendingResolvers.values()) r({ error: reason });
+  pendingResolvers.clear();
+}
 
 function getNativePort() {
-  if (!nativePort) {
+  if (nativePort) return nativePort;
+  try {
     nativePort = chrome.runtime.connectNative("com.myapp.bridge");
-    nativePort.onDisconnect.addListener(() => {
-      nativePort = null;
-    });
+  } catch (err) {
+    throw new Error("Native host unavailable: " + err.message);
   }
+  nativePort.onDisconnect.addListener(() => {
+    const err = chrome.runtime.lastError?.message || "Native host disconnected";
+    nativePort = null;
+    rejectAllPending(err);
+  });
+  nativePort.onMessage.addListener((response) => {
+    const id = response?.request_id;
+    if (id != null && pendingResolvers.has(id)) {
+      const resolver = pendingResolvers.get(id);
+      pendingResolvers.delete(id);
+      resolver(response);
+    }
+    // Responses without a recognised id are dropped — likely from a
+    // restarted host whose original requester has already given up.
+  });
   return nativePort;
 }
 
@@ -64,12 +89,9 @@ function handleTaskNative(payload) {
   return new Promise((resolve) => {
     try {
       const port = getNativePort();
-      const handler = (response) => {
-        port.onMessage.removeListener(handler);
-        resolve(response);
-      };
-      port.onMessage.addListener(handler);
-      port.postMessage(payload);
+      const requestId = nextRequestId++;
+      pendingResolvers.set(requestId, resolve);
+      port.postMessage({ ...payload, request_id: requestId });
     } catch (err) {
       resolve({ error: err.message });
     }
@@ -156,15 +178,17 @@ async function handleReadSelection(sender) {
   const tabId = sender.tab?.id;
   if (!tabId) return { text: "" };
 
+  // Run in the originating frame only — selection lives where the user clicked.
+  const target = sender.frameId != null
+    ? { tabId, frameIds: [sender.frameId] }
+    : { tabId, allFrames: true };
+
   try {
-    // Try the specific frame first (sender.frameId), then all frames
-    const frameId = sender.frameId;
     const results = await chrome.scripting.executeScript({
-      target: { tabId, allFrames: true },
+      target,
       world: "MAIN",
       func: readSelection,
     });
-    // Return the first non-empty result from any frame
     for (const r of results || []) {
       const text = r?.result;
       if (text && text.trim().length > 0) return { text };
@@ -178,15 +202,21 @@ async function handleReadSelection(sender) {
 // ─── Inline tooltip: REPLACE_CODE ─────────────────────────────────────────
 
 async function handleReplaceCode(message, sender) {
-  const tabId = sender.tab?.id;
-  if (!tabId) return { ok: false };
-
-  // Target the originating frame — that's where the editor and saved range live.
-  // Fall back to allFrames if frameId is unknown.
-  const frameId = sender.frameId;
-  const target = frameId != null
-    ? { tabId, frameIds: [frameId] }
-    : { tabId, allFrames: true };
+  // sender.tab is undefined when the message comes from the side panel/popup.
+  // In that case, fall back to the active tab and search every frame for the
+  // editor with a non-empty selection.
+  let tabId = sender.tab?.id;
+  let target;
+  if (tabId && sender.frameId != null) {
+    target = { tabId, frameIds: [sender.frameId] };
+  } else {
+    if (!tabId) {
+      const [activeTab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      if (!activeTab?.id) return { ok: false };
+      tabId = activeTab.id;
+    }
+    target = { tabId, allFrames: true };
+  }
 
   try {
     const results = await chrome.scripting.executeScript({

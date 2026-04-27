@@ -15,7 +15,6 @@
   let shadow = null;       // closed shadow root
   let toolbarEl = null;    // action toolbar
   let responseEl = null;   // response popup
-  let lastSelectionText = "";
   let lastRect = null;     // DOMRect of last selection
   let pendingRect = null;  // rect captured when action was triggered
 
@@ -40,7 +39,6 @@
     if (responseEl) return; // don't re-show toolbar while response/loading panel is open
     ensureShadow();
     hideToolbar();
-    lastSelectionText = text;
     lastRect = rect;
 
     toolbarEl = document.createElement("div");
@@ -260,6 +258,8 @@
   }
 
   function onReplace(btn, code) {
+    if (btn.disabled) return;
+    btn.disabled = true;
     btn.textContent = "…";
     sendMsg({ type: "REPLACE_CODE", code }).then((res) => {
       if (res?.ok) {
@@ -267,10 +267,19 @@
         btn.className = "cb-btn-done";
       } else {
         btn.textContent = "✗ Failed";
-        setTimeout(() => { btn.textContent = "↻ Replace"; btn.className = "cb-btn-replace"; }, 2000);
+        setTimeout(() => {
+          btn.textContent = "↻ Replace";
+          btn.className = "cb-btn-replace";
+          btn.disabled = false;
+        }, 2000);
       }
     }).catch(() => {
       btn.textContent = "✗ Error";
+      setTimeout(() => {
+        btn.textContent = "↻ Replace";
+        btn.className = "cb-btn-replace";
+        btn.disabled = false;
+      }, 2000);
     });
   }
 

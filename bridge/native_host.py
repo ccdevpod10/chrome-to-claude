@@ -36,8 +36,10 @@ def send_message(data: dict) -> None:
 
 def main() -> None:
     while True:
+        request_id = None
         try:
             message = read_message()
+            request_id = message.get("request_id")
             provider = message.get("provider", "claude-cli")
             prompt = message.get("prompt", "")
             context = message.get("context", {})
@@ -52,7 +54,7 @@ def main() -> None:
                     context=context,
                     history=history,
                 )
-                send_message(result)
+                send_message({**result, "request_id": request_id})
                 continue
 
             # Claude CLI path
@@ -72,9 +74,9 @@ def main() -> None:
                     )
             finally:
                 os.unlink(tmp.name)
-            send_message({"result": result.stdout, "error": result.stderr})
+            send_message({"result": result.stdout, "error": result.stderr, "request_id": request_id})
         except Exception as e:
-            send_message({"result": "", "error": str(e)})
+            send_message({"result": "", "error": str(e), "request_id": request_id})
 
 
 if __name__ == "__main__":

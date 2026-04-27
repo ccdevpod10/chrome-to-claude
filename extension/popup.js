@@ -37,9 +37,13 @@ submitBtn.addEventListener("click", async () => {
   }
 
   const useStream = useStreamEl.checked;
-  const { model = "" } = await chrome.storage.local.get("model");
+  const { model = "", activeProvider = "claude-cli" } = await chrome.storage.local.get([
+    "model",
+    "activeProvider",
+  ]);
 
-  if (useStream) {
+  // Streaming only works through the Claude CLI bridge endpoint.
+  if (useStream && activeProvider === "claude-cli") {
     await runTaskStreaming(prompt, context, model);
   } else {
     const result = await chrome.runtime.sendMessage({
