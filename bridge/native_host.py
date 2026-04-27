@@ -6,7 +6,6 @@ using 4-byte little-endian length-prefixed JSON messages.
 """
 import json
 import os
-import shutil
 import struct
 import subprocess
 import sys
@@ -15,6 +14,7 @@ import tempfile
 # Ensure bridge/ is on the path so context_assembler can be imported
 sys.path.insert(0, os.path.dirname(__file__))
 from context_assembler import assemble
+from openrouter_client import call_openrouter
 from utils import resolve_claude_command, prepare_command
 
 CLAUDE_COMMAND_LIST = resolve_claude_command()
@@ -39,20 +39,32 @@ def main() -> None:
     while True:
         try:
             message = read_message()
+            provider = message.get("provider", "claude-cli")
             prompt = message.get("prompt", "")
             context = message.get("context", {})
             history = message.get("history", [])
+
+            if provider == "openrouter":
+                result = call_openrouter(
+                    api_key=message.get("api_key", ""),
+                    model=message.get("model", ""),
+                    prompt=prompt,
+                    context=context,
+                    history=history,
+                )
+                send_message(result)
+                continue
+
+            # Claude CLI path
             ctx = {**context, "history": history}
             full_prompt = assemble(prompt, ctx)
-
-            # Write prompt to temp file and pipe via stdin to avoid OS ARG_MAX limits
             tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False, encoding="utf-8")
             tmp.write(full_prompt)
             tmp.close()
             try:
                 with open(tmp.name) as stdin_file:
                     result = subprocess.run(
-                        prepare_command(CLAUDE_COMMAND_LIST, output_format="text"),
+                        prepare_command(CLAUDE_COMMAND_LIST, message.get("model", ""), output_format="text"),
                         stdin=stdin_file,
                         capture_output=True,
                         text=True,

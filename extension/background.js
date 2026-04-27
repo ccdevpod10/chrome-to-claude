@@ -110,14 +110,17 @@ async function handleCodeAction(message, sender) {
   if (!tabId) return { error: "No tab" };
 
   // Read the full selection from the MAIN world (handles Monaco, CodeMirror, etc.)
+  // Also save the selection range so writeSelection() can use it after the overlay
+  // steals focus and clears the editor's live selection.
   let fullCode = message.code || "";
   try {
-    const results = await chrome.scripting.executeScript({
-      target: { tabId, allFrames: true },
-      world: "MAIN",
-      func: readSelection,
-    });
-    for (const r of results || []) {
+    const frameId = sender.frameId;
+    const target = frameId != null ? { tabId, frameIds: [frameId] } : { tabId, allFrames: true };
+    const [readResults] = await Promise.all([
+      chrome.scripting.executeScript({ target, world: "MAIN", func: readSelection }),
+      chrome.scripting.executeScript({ target, world: "MAIN", func: saveSelectionRange }),
+    ]);
+    for (const r of readResults || []) {
       const text = r?.result;
       if (text && text.length > fullCode.length) { fullCode = text; break; }
     }
@@ -178,14 +181,20 @@ async function handleReplaceCode(message, sender) {
   const tabId = sender.tab?.id;
   if (!tabId) return { ok: false };
 
+  // Target the originating frame — that's where the editor and saved range live.
+  // Fall back to allFrames if frameId is unknown.
+  const frameId = sender.frameId;
+  const target = frameId != null
+    ? { tabId, frameIds: [frameId] }
+    : { tabId, allFrames: true };
+
   try {
     const results = await chrome.scripting.executeScript({
-      target: { tabId, allFrames: true },
+      target,
       world: "MAIN",
       func: writeSelection,
       args: [message.code],
     });
-    // Any frame that returned true means success
     for (const r of results || []) {
       if (r?.result === true) return { ok: true };
     }
@@ -196,6 +205,56 @@ async function handleReplaceCode(message, sender) {
 }
 
 // ─── Editor read/write (serialised, injected into page MAIN world) ────────
+
+// Saves the current editor selection range to window.__cbSavedRange so that
+// writeSelection() can still replace it after the Shadow DOM overlay steals focus.
+function saveSelectionRange() {
+  window.__cbSavedRange = null;
+  try {
+    if (window.monaco?.editor) {
+      const eds = window.monaco.editor.getEditors();
+      for (let i = 0; i < eds.length; i++) {
+        const s = eds[i].getSelection();
+        if (s && !s.isEmpty()) {
+          window.__cbSavedRange = { type: "monaco", idx: i, sl: s.startLineNumber, sc: s.startColumn, el: s.endLineNumber, ec: s.endColumn };
+          return;
+        }
+      }
+    }
+  } catch {}
+  try {
+    const els = document.querySelectorAll(".cm-editor");
+    for (let i = 0; i < els.length; i++) {
+      if (els[i]?.cmView?.view) {
+        const { from, to } = els[i].cmView.view.state.selection.main;
+        if (from !== to) { window.__cbSavedRange = { type: "cm6", idx: i, from, to }; return; }
+      }
+    }
+  } catch {}
+  try {
+    const els = document.querySelectorAll(".CodeMirror");
+    for (let i = 0; i < els.length; i++) {
+      if (els[i]?.CodeMirror && els[i].CodeMirror.getSelection()) {
+        window.__cbSavedRange = { type: "cm5", idx: i }; return;
+      }
+    }
+  } catch {}
+  try {
+    const els = document.querySelectorAll(".ace_editor");
+    for (let i = 0; i < els.length; i++) {
+      if (els[i]?.env?.editor && els[i].env.editor.getSelectedText()) {
+        const r = els[i].env.editor.getSelectionRange();
+        window.__cbSavedRange = { type: "ace", idx: i, rs: r.start.row, cs: r.start.column, re: r.end.row, ce: r.end.column }; return;
+      }
+    }
+  } catch {}
+  try {
+    const el = document.activeElement;
+    if (el && (el.tagName === "TEXTAREA" || el.tagName === "INPUT") && el.selectionStart !== el.selectionEnd) {
+      window.__cbSavedRange = { type: "textarea", id: el.id || "", ss: el.selectionStart, se: el.selectionEnd };
+    }
+  } catch {}
+}
 
 function readSelection() {
   try {
@@ -234,52 +293,95 @@ function readSelection() {
 }
 
 function writeSelection(text) {
+  const saved = window.__cbSavedRange || null;
+  const done = () => { window.__cbSavedRange = null; return true; };
+
+  // Monaco — live selection first, then saved range
   try {
     if (window.monaco?.editor) {
-      for (const e of window.monaco.editor.getEditors()) {
+      const eds = window.monaco.editor.getEditors();
+      for (const e of eds) {
         const s = e.getSelection();
         if (s && !s.isEmpty()) {
           e.executeEdits("claude-bridge", [{ range: s, text, forceMoveMarkers: true }]);
-          return true;
+          return done();
         }
       }
-    }
-  } catch {}
-  try {
-    for (const el of document.querySelectorAll(".cm-editor")) {
-      if (el?.cmView?.view) {
-        const v = el.cmView.view;
-        const { from, to } = v.state.selection.main;
-        if (from !== to) { v.dispatch({ changes: { from, to, insert: text } }); return true; }
+      if (saved?.type === "monaco" && eds[saved.idx]) {
+        const range = { startLineNumber: saved.sl, startColumn: saved.sc, endLineNumber: saved.el, endColumn: saved.ec };
+        eds[saved.idx].executeEdits("claude-bridge", [{ range, text, forceMoveMarkers: true }]);
+        return done();
       }
     }
   } catch {}
+
+  // CodeMirror 6
+  try {
+    const els = document.querySelectorAll(".cm-editor");
+    for (const el of els) {
+      if (el?.cmView?.view) {
+        const { from, to } = el.cmView.view.state.selection.main;
+        if (from !== to) { el.cmView.view.dispatch({ changes: { from, to, insert: text } }); return done(); }
+      }
+    }
+    if (saved?.type === "cm6") {
+      const el = document.querySelectorAll(".cm-editor")[saved.idx];
+      if (el?.cmView?.view) { el.cmView.view.dispatch({ changes: { from: saved.from, to: saved.to, insert: text } }); return done(); }
+    }
+  } catch {}
+
+  // CodeMirror 5
   try {
     for (const el of document.querySelectorAll(".CodeMirror")) {
-      if (el?.CodeMirror && el.CodeMirror.getSelection()) { el.CodeMirror.replaceSelection(text); return true; }
+      if (el?.CodeMirror && el.CodeMirror.getSelection()) { el.CodeMirror.replaceSelection(text); return done(); }
     }
+    // CM5: saved range — selection is tracked internally; no reliable way to restore without cursor
   } catch {}
+
+  // ACE
   try {
-    for (const el of document.querySelectorAll(".ace_editor")) {
+    const els = document.querySelectorAll(".ace_editor");
+    for (const el of els) {
       if (el?.env?.editor && el.env.editor.getSelectedText()) {
         el.env.editor.session.replace(el.env.editor.getSelectionRange(), text);
-        return true;
+        return done();
+      }
+    }
+    if (saved?.type === "ace") {
+      const el = document.querySelectorAll(".ace_editor")[saved.idx];
+      if (el?.env?.editor) {
+        const R = el.env.editor.getSelectionRange().constructor;
+        el.env.editor.session.replace(new R(saved.rs, saved.cs, saved.re, saved.ce), text);
+        return done();
       }
     }
   } catch {}
+
+  // Textarea / input
   try {
     const el = document.activeElement;
     if (el && (el.tagName === "TEXTAREA" || (el.tagName === "INPUT" && el.type === "text"))) {
       if (el.selectionStart !== el.selectionEnd) {
         el.setRangeText(text, el.selectionStart, el.selectionEnd, "end");
         el.dispatchEvent(new Event("input", { bubbles: true }));
-        return true;
+        return done();
+      }
+    }
+    if (saved?.type === "textarea") {
+      const candidates = document.querySelectorAll("textarea");
+      const target = saved.id ? document.getElementById(saved.id) : (candidates.length === 1 ? candidates[0] : null);
+      if (target) {
+        target.setRangeText(text, saved.ss, saved.se, "end");
+        target.dispatchEvent(new Event("input", { bubbles: true }));
+        return done();
       }
     }
   } catch {}
+
+  // DOM selection fallback
   try {
     const sel = window.getSelection();
-    if (sel && !sel.isCollapsed) { document.execCommand("insertText", false, text); return true; }
+    if (sel && !sel.isCollapsed) { document.execCommand("insertText", false, text); return done(); }
   } catch {}
   return false;
 }
@@ -302,9 +404,15 @@ async function handleTask(payload) {
   const enrichedPayload = { ...payload, history };
   let response;
 
-  if (provider === "claude-cli") {
-    const { model: legacyModel = "" } = await chrome.storage.local.get("model");
-    enrichedPayload.model = payload.model || providerConfig.model || legacyModel;
+  if (provider === "claude-cli" || provider === "openrouter") {
+    if (provider === "openrouter") {
+      enrichedPayload.provider = "openrouter";
+      enrichedPayload.api_key = providerConfig.apiKey || "";
+      enrichedPayload.model = payload.model || providerConfig.model || DEFAULT_MODELS.openrouter;
+    } else {
+      const { model: legacyModel = "" } = await chrome.storage.local.get("model");
+      enrichedPayload.model = payload.model || providerConfig.model || legacyModel;
+    }
     response = USE_NATIVE
       ? await handleTaskNative(enrichedPayload)
       : await handleTaskHttp(enrichedPayload);
@@ -356,7 +464,6 @@ async function callProviderAPI(provider, config, payload) {
     let result;
     if (provider === "anthropic") result = await callAnthropic(apiKey, resolvedModel, messages);
     else if (provider === "openai") result = await callOpenAI(apiKey, resolvedModel, messages);
-    else if (provider === "openrouter") result = await callOpenRouter(apiKey, resolvedModel, messages);
     else return { error: "Unknown provider: " + provider };
     return { result };
   } catch (err) {
@@ -405,18 +512,3 @@ async function callOpenAI(apiKey, model, messages) {
   return data.choices[0].message.content;
 }
 
-async function callOpenRouter(apiKey, model, messages) {
-  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: "Bearer " + apiKey,
-      "Content-Type": "application/json",
-      "HTTP-Referer": "https://github.com/chrome-to-claude",
-      "X-Title": "Claude Code Bridge",
-    },
-    body: JSON.stringify({ model, messages }),
-  });
-  if (!res.ok) await parseProviderError("OpenRouter", res);
-  const data = await res.json();
-  return data.choices[0].message.content;
-}

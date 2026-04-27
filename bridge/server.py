@@ -1,6 +1,5 @@
 import json
 import os
-import shutil
 import subprocess
 import tempfile
 from fastapi import FastAPI
@@ -9,6 +8,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from context_assembler import assemble
+from openrouter_client import call_openrouter
 from utils import resolve_claude_command, prepare_command
 
 CLAUDE_COMMAND_LIST = resolve_claude_command()
@@ -27,7 +27,9 @@ class TaskRequest(BaseModel):
     prompt: str
     context: dict = {}
     history: list = []
-    model: str = ""  # optional model override, e.g. "claude-opus-4-6"
+    model: str = ""
+    provider: str = "claude-cli"   # "claude-cli" | "openrouter"
+    api_key: str = ""              # required when provider == "openrouter"
 
 
 def run_claude(full_prompt: str, model: str, output_format: str = "text") -> subprocess.CompletedProcess:
@@ -50,6 +52,14 @@ def health():
 
 @app.post("/task")
 def run_task(req: TaskRequest):
+    if req.provider == "openrouter":
+        return call_openrouter(
+            api_key=req.api_key,
+            model=req.model,
+            prompt=req.prompt,
+            context=req.context,
+            history=req.history,
+        )
     ctx = {**req.context, "history": req.history}
     full_prompt = assemble(req.prompt, ctx)
     result = run_claude(full_prompt, req.model)
