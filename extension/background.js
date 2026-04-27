@@ -411,6 +411,7 @@ async function callOpenRouter(apiKey, model, messages) {
     headers: {
       Authorization: "Bearer " + apiKey,
       "Content-Type": "application/json",
+      "HTTP-Referer": "https://github.com/chrome-to-claude",
       "X-Title": "Claude Code Bridge",
     },
     body: JSON.stringify({ model, messages }),
