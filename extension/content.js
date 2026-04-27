@@ -221,15 +221,27 @@
 
   // ── Actions → background.js ──────────────────────────────────────────────
 
+  // chrome.runtime.id goes undefined when the extension reloads.
+  // Checking it before sending avoids the "Extension context invalidated"
+  // console error that Chrome emits even when the Promise rejection is caught.
+  function isAlive() {
+    try { return !!chrome.runtime?.id; } catch { return false; }
+  }
+
   function sendMsg(msg) {
+    if (!isAlive()) return Promise.reject(new Error("context-invalidated"));
     try {
-      return chrome.runtime.sendMessage(msg);
+      return chrome.runtime.sendMessage(msg) ?? Promise.resolve();
     } catch {
       return Promise.reject(new Error("context-invalidated"));
     }
   }
 
   function onAction(action, code) {
+    if (!isAlive()) {
+      showResponse("Extension reloaded — please refresh the page.", action);
+      return;
+    }
     pendingRect = lastRect;
     hideToolbar();
     showLoading(action);
@@ -288,6 +300,8 @@
   function checkSelection(e) {
     clearTimeout(debounce);
     debounce = setTimeout(() => {
+      if (!isAlive()) return; // extension reloaded between mouseup and debounce firing
+
       // 1. Try native DOM selection first (works for plain textareas, contenteditable)
       const sel = window.getSelection();
       const domText = sel?.toString().trim() || "";
