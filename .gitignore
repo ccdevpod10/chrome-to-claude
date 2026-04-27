@@ -9,3 +9,7 @@ build/
 extension/popup/screenshots/
 extension/options/screenshots/
 .DS_Store
+node_modules/
+.env
+.env.local
+*.log

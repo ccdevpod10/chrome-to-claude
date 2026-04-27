@@ -1,9 +1,0 @@
-{
-  "name": "com.myapp.bridge",
-  "description": "Claude Code CLI bridge for Chrome Extension",
-  "path": "__NATIVE_HOST_PATH__",
-  "type": "stdio",
-  "allowed_origins": [
-    "chrome-extension://agkaladhecmbbapegaggofikdlaokfpj/"
-  ]
-}
