@@ -323,6 +323,7 @@
   document.addEventListener("mousedown", (e) => {
     if (hostEl && !hostEl.contains(e.target)) {
       hideToolbar();
+      hideResponse();
     }
   });
 
