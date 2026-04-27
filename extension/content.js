@@ -37,6 +37,7 @@
   // ── Action toolbar ───────────────────────────────────────────────────────
 
   function showToolbar(rect, text) {
+    if (responseEl) return; // don't re-show toolbar while response/loading panel is open
     ensureShadow();
     hideToolbar();
     lastSelectionText = text;

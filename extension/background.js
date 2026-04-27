@@ -134,14 +134,14 @@ async function handleCodeAction(message, sender) {
 
   const response = await handleTask({ prompt, context });
 
-  // Forward result to the content script's response popup
+  // Forward result only to the frame that triggered the action (sender.frameId).
+  // Without frameId, Chrome broadcasts to every frame → duplicate panels in multi-frame IDEs.
   try {
-    await chrome.tabs.sendMessage(tabId, {
-      type: "CODE_ACTION_RESULT",
-      action,
-      result: response.result || "",
-      error: response.error || "",
-    });
+    await chrome.tabs.sendMessage(
+      tabId,
+      { type: "CODE_ACTION_RESULT", action, result: response.result || "", error: response.error || "" },
+      { frameId: sender.frameId ?? 0 }
+    );
   } catch { /* tab may have closed */ }
 
   return response;
