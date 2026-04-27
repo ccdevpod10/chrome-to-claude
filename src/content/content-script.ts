@@ -1,23 +1,51 @@
 import { detect, DetectedSelection } from "./selection-detector";
 import { createTooltip } from "./tooltip";
-import type { Action, AssistRequest, ReplaceRequest, TriggerTooltip } from "../core/messages";
+import { createResultPopup } from "./result-popup";
+import { createSettingsModal } from "./settings-modal";
+import { getShell } from "./ui-shell";
+import type { Action, AssistRequest, ReplaceRequest, SWMessage, TriggerTooltip } from "../core/messages";
 
+getShell();
 const tooltip = createTooltip();
+const popup = createResultPopup({
+  onReplace: (text) => {
+    if (active) Promise.resolve(active.adapter.replaceSelection(active.info, text));
+  },
+  onRetry: () => { if (active) runAction("improve"); },
+  onStop: (id) => chrome.runtime.sendMessage({ type: "ASSIST_CANCEL", id }).catch(() => {}),
+  onClose: () => { active = null; },
+  onSettings: () => settings.open(),
+});
+const settings = createSettingsModal();
+
 let active: DetectedSelection | null = null;
+let lastAnchorRect: DOMRect | null = null;
 let debounceId = 0;
 let inflight = 0;
 
+// Open a long-lived port for receiving SW broadcasts.
+let panelPort: chrome.runtime.Port | null = null;
+function ensurePanelPort() {
+  if (panelPort) return;
+  panelPort = chrome.runtime.connect({ name: "panel" });
+  panelPort.onMessage.addListener((m: SWMessage) => popup.ingest(m));
+  panelPort.onDisconnect.addListener(() => { panelPort = null; });
+}
+ensurePanelPort();
+
 async function refresh() {
+  if (popup.isOpen()) return; // don't pop tooltip while result is showing
   const seq = ++inflight;
   const ctx = await detect();
-  if (seq !== inflight) return; // stale
+  if (seq !== inflight) return;
   if (!ctx) {
     tooltip.hide();
     active = null;
     return;
   }
   active = ctx;
-  tooltip.show(ctx.info.rect, runAction);
+  lastAnchorRect = ctx.info.rect;
+  tooltip.show(ctx.info.rect, runAction, () => settings.open());
 }
 
 function scheduleRefresh() {
@@ -43,7 +71,12 @@ chrome.runtime.onMessage.addListener((msg: TriggerTooltip | ReplaceRequest) => {
 
 function runAction(action: Action) {
   if (!active) return;
+  ensurePanelPort();
   const id = crypto.randomUUID();
+  popup.start(id, action, active.info.text);
+  popup.showAt(lastAnchorRect ?? active.info.rect);
+  tooltip.hide();
+
   const port = chrome.runtime.connect({ name: "assist" });
   const req: AssistRequest = {
     type: "ASSIST_REQUEST",
@@ -55,5 +88,4 @@ function runAction(action: Action) {
   };
   port.postMessage(req);
   setTimeout(() => { try { port.disconnect(); } catch { /* noop */ } }, 5 * 60 * 1000);
-  tooltip.hide();
 }

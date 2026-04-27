@@ -37,15 +37,8 @@ chrome.runtime.onConnect.addListener((port) => {
 
     try {
       const tabId = port.sender?.tab?.id ?? msg.tabId;
-      if (tabId !== undefined) {
-        try { await chrome.sidePanel.open({ tabId }); } catch (e) { log.warn("sidePanel.open", e); }
-      }
-
-      // Wait briefly for the panel to mount and connect — otherwise the early
-      // ASSIST_START / first chunks would be lost. Replay buffer covers any tail
-      // races, but waiting here keeps streaming visually smooth.
-      await waitForPanel(2000);
-
+      // No auto-open of side panel: the in-page popup (content script) listens on
+      // the "panel" port and is already connected before this request fires.
       broadcast({ type: "ASSIST_START", id: msg.id, original: msg.code, action: msg.action, tabId: tabId ?? -1 });
 
       const settings = await getSettings();
@@ -145,14 +138,6 @@ function pickUsableProvider(s: Settings) {
     if (hasKey(p.id)) return p;
   }
   return primary;
-}
-
-async function waitForPanel(timeoutMs: number): Promise<void> {
-  if (panelPorts.size > 0) return;
-  const start = Date.now();
-  while (panelPorts.size === 0 && Date.now() - start < timeoutMs) {
-    await new Promise((r) => setTimeout(r, 50));
-  }
 }
 
 function broadcast(m: SWMessage) {
