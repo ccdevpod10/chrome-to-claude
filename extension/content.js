@@ -17,6 +17,7 @@
   let responseEl = null;   // response popup
   let lastSelectionText = "";
   let lastRect = null;     // DOMRect of last selection
+  let pendingRect = null;  // rect captured when action was triggered
 
   // ── Shadow DOM setup ─────────────────────────────────────────────────────
 
@@ -93,7 +94,9 @@
     responseEl.appendChild(body);
 
     shadow.appendChild(responseEl);
-    if (lastRect) positionElement(responseEl, lastRect, "below");
+    const rectToUse = pendingRect || lastRect;
+    if (rectToUse) positionElement(responseEl, rectToUse, "below");
+    pendingRect = null;
   }
 
   function showLoading(action) {
@@ -112,7 +115,8 @@
     responseEl.querySelector(".cb-dismiss").addEventListener("click", hideResponse);
 
     shadow.appendChild(responseEl);
-    if (lastRect) positionElement(responseEl, lastRect, "below");
+    const rectToUse = pendingRect || lastRect;
+    if (rectToUse) positionElement(responseEl, rectToUse, "below");
   }
 
   function hideResponse() {
@@ -214,7 +218,8 @@
       showResponse("Extension context invalidated. Please reload the page.", action);
       return;
     }
-    hideToolbar(); // Hide toolbar immediately when action is clicked to prevent flickering
+    pendingRect = lastRect;
+    hideToolbar();
     showLoading(action);
     chrome.runtime.sendMessage({
       type: "CODE_ACTION",
