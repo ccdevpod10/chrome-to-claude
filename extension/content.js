@@ -71,31 +71,38 @@
 
   function showResponse(result, action) {
     ensureShadow();
-    hideResponse();
 
-    responseEl = document.createElement("div");
-    responseEl.className = "cb-response";
+    if (responseEl) {
+      // Reuse the existing panel (loading → response in-place, no positional jump)
+      responseEl.className = "cb-response";
+      responseEl.querySelector(".cb-response-header span").textContent = `Claude — ${action}`;
+      const body = responseEl.querySelector(".cb-response-body");
+      body.innerHTML = "";
+      renderResponse(body, result);
+    } else {
+      responseEl = document.createElement("div");
+      responseEl.className = "cb-response";
 
-    // Header
-    const header = document.createElement("div");
-    header.className = "cb-response-header";
-    header.innerHTML = `<span>Claude — ${action}</span>`;
-    const dismiss = document.createElement("button");
-    dismiss.className = "cb-dismiss";
-    dismiss.textContent = "✕";
-    dismiss.addEventListener("click", hideResponse);
-    header.appendChild(dismiss);
-    responseEl.appendChild(header);
+      const header = document.createElement("div");
+      header.className = "cb-response-header";
+      header.innerHTML = `<span>Claude — ${action}</span>`;
+      const dismiss = document.createElement("button");
+      dismiss.className = "cb-dismiss";
+      dismiss.textContent = "✕";
+      dismiss.addEventListener("click", hideResponse);
+      header.appendChild(dismiss);
+      responseEl.appendChild(header);
 
-    // Body — parse code blocks
-    const body = document.createElement("div");
-    body.className = "cb-response-body";
-    renderResponse(body, result);
-    responseEl.appendChild(body);
+      const body = document.createElement("div");
+      body.className = "cb-response-body";
+      renderResponse(body, result);
+      responseEl.appendChild(body);
 
-    shadow.appendChild(responseEl);
-    const rectToUse = pendingRect || lastRect;
-    if (rectToUse) positionElement(responseEl, rectToUse, "below");
+      shadow.appendChild(responseEl);
+      const rectToUse = pendingRect || lastRect;
+      if (rectToUse) positionElement(responseEl, rectToUse, "below");
+    }
+
     pendingRect = null;
   }
 
