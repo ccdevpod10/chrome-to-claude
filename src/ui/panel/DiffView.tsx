@@ -4,33 +4,34 @@ import { diffLines } from "diff";
 interface Props { original: string; suggested: string }
 
 export default function DiffView({ original, suggested }: Props) {
-  const parts = useMemo(() => diffLines(original, suggested), [original, suggested]);
-  if (!suggested) return <pre className="p-2 text-xs opacity-50">Waiting for output…</pre>;
+  const rows = useMemo(() => {
+    if (!suggested) return [];
+    const parts = diffLines(original, suggested);
+    const out: { sigil: " " | "+" | "-"; line: string }[] = [];
+    for (const p of parts) {
+      const lines = p.value.split("\n");
+      if (lines.length && lines[lines.length - 1] === "") lines.pop();
+      const sigil: " " | "+" | "-" = p.added ? "+" : p.removed ? "-" : " ";
+      for (const l of lines) out.push({ sigil, line: l });
+    }
+    return out;
+  }, [original, suggested]);
 
-  const onlyEqual = parts.length === 1 && !parts[0].added && !parts[0].removed;
-  if (onlyEqual) {
-    return (
-      <pre className="p-2 font-mono text-xs leading-snug whitespace-pre-wrap text-neutral-300">
-        {suggested}
-      </pre>
-    );
-  }
+  if (!suggested) return <div className="p-3 text-[12px] text-neutral-500 italic">Waiting for output…</div>;
+  if (!rows.length) return <div className="p-3 text-[12px] text-neutral-500 italic">No differences.</div>;
 
   return (
-    <div className="font-mono text-xs leading-snug">
-      {parts.map((p, i) => {
-        const cls = p.added
-          ? "bg-emerald-950/60 text-emerald-200"
-          : p.removed
-            ? "bg-red-950/60 text-red-200"
-            : "text-neutral-300";
-        const sigil = p.added ? "+ " : p.removed ? "- " : "  ";
-        const lines = p.value.split("\n");
-        if (lines.length && lines[lines.length - 1] === "") lines.pop();
+    <div className="font-code text-[12px] leading-[1.55]">
+      {rows.map((r, i) => {
+        const cls =
+          r.sigil === "+" ? "bg-emerald-500/10 text-emerald-200 border-l-2 border-emerald-500/60"
+          : r.sigil === "-" ? "bg-rose-500/10 text-rose-200 border-l-2 border-rose-500/60"
+          : "text-neutral-300 border-l-2 border-transparent";
         return (
-          <pre key={i} className={`${cls} px-2 whitespace-pre-wrap`}>
-            {lines.map((l) => sigil + l).join("\n")}
-          </pre>
+          <div key={i} className={`flex ${cls}`}>
+            <span className="w-6 select-none px-2 text-center text-[11px] text-neutral-500">{r.sigil}</span>
+            <span className="flex-1 whitespace-pre py-0.5 pr-3">{r.line || " "}</span>
+          </div>
         );
       })}
     </div>

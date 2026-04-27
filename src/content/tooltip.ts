@@ -3,14 +3,34 @@ import type { Action } from "../core/messages";
 const HOST_ID = "__ai_assist_host__";
 const STYLE = `
   :host{all:initial}
-  .bar{position:fixed;display:flex;gap:4px;background:#0b0f17;color:#e6e9ef;
-       border:1px solid #1f2937;border-radius:8px;padding:4px;
-       font:12px ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto;
-       box-shadow:0 8px 24px rgba(0,0,0,.35);pointer-events:auto;z-index:2147483647}
-  .bar button{background:#111827;border:1px solid #1f2937;color:#e6e9ef;
-              padding:6px 10px;border-radius:6px;cursor:pointer;font:inherit}
-  .bar button:hover{background:#1f2937}
+  @keyframes tt-in { from { opacity:0; transform: translateY(4px) scale(.97); } to { opacity:1; transform: none; } }
+  .bar{
+    position:fixed;display:flex;align-items:center;gap:2px;
+    background:rgba(15,15,20,.92);
+    color:#ededf0;
+    border:1px solid rgba(255,255,255,.08);
+    border-radius:10px;padding:4px;
+    font:500 12px/1 ui-sans-serif,-apple-system,"SF Pro Text","Inter",system-ui,Segoe UI,Roboto;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    box-shadow: 0 12px 32px rgba(0,0,0,.45), 0 0 0 1px rgba(0,0,0,.3);
+    pointer-events:auto;z-index:2147483647;
+    animation: tt-in 130ms ease-out;
+  }
+  .brand{
+    display:grid;place-items:center;width:22px;height:22px;margin-left:2px;margin-right:4px;
+    border-radius:6px;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;
+  }
+  .brand svg{width:12px;height:12px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+  .bar button{
+    background:transparent;border:0;color:#d4d4d8;
+    padding:6px 10px;border-radius:7px;cursor:pointer;font:inherit;
+    transition:background-color 120ms,color 120ms;
+  }
+  .bar button:hover{background:rgba(255,255,255,.06);color:#fff}
+  .bar button:active{background:rgba(255,255,255,.1)}
   .bar[hidden]{display:none}
+  .sep{width:1px;height:16px;background:rgba(255,255,255,.08);margin:0 2px}
 `;
 
 export interface TooltipApi {
@@ -54,16 +74,21 @@ export function createTooltip(): TooltipApi {
   return {
     show(rect, onPick) {
       bar.innerHTML = "";
+      const brand = document.createElement("span");
+      brand.className = "brand";
+      brand.innerHTML = `<svg viewBox="0 0 24 24"><path d="M12 3v4"/><path d="M12 17v4"/><path d="M3 12h4"/><path d="M17 12h4"/><path d="m5.6 5.6 2.8 2.8"/><path d="m15.6 15.6 2.8 2.8"/><path d="m18.4 5.6-2.8 2.8"/><path d="m8.4 15.6-2.8 2.8"/></svg>`;
+      bar.appendChild(brand);
+      const sep = document.createElement("span"); sep.className = "sep"; bar.appendChild(sep);
       for (const a of ACTIONS) {
         const b = document.createElement("button");
         b.textContent = a[0].toUpperCase() + a.slice(1);
         b.dataset.action = a;
-        b.addEventListener("mousedown", (e) => e.preventDefault()); // keep selection
+        b.addEventListener("mousedown", (e) => e.preventDefault());
         b.addEventListener("click", () => onPick(a));
         bar.appendChild(b);
       }
-      const top = Math.max(8, rect.top - 40);
-      const left = Math.max(8, Math.min(window.innerWidth - 240, rect.left));
+      const top = Math.max(8, rect.top - 44);
+      const left = Math.max(8, Math.min(window.innerWidth - 280, rect.left));
       bar.style.top = `${top}px`;
       bar.style.left = `${left}px`;
       bar.hidden = false;
