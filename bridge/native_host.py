@@ -15,31 +15,9 @@ import tempfile
 # Ensure bridge/ is on the path so context_assembler can be imported
 sys.path.insert(0, os.path.dirname(__file__))
 from context_assembler import assemble
+from utils import resolve_claude_command, prepare_command
 
-# Chrome spawns native hosts with a stripped PATH that often omits ~/.local/bin,
-# /usr/local/bin, etc. Resolve the claude binary once at startup.
-_CLAUDE_SEARCH_PATHS = [
-    os.path.expanduser("~/.local/bin/claude"),
-    "/usr/local/bin/claude",
-    "/opt/homebrew/bin/claude",
-    "/usr/bin/claude",
-]
-
-def _find_claude() -> str:
-    # Honour an explicit env override first
-    if env := os.environ.get("CLAUDE_BIN"):
-        return env
-    # Augment PATH with common install locations and try shutil.which
-    extra = ":".join(os.path.dirname(p) for p in _CLAUDE_SEARCH_PATHS)
-    augmented = extra + ":" + os.environ.get("PATH", "")
-    found = shutil.which("claude", path=augmented)
-    if found:
-        return found
-    raise FileNotFoundError(
-        "claude CLI not found. Install it or set the CLAUDE_BIN environment variable."
-    )
-
-CLAUDE_BIN = _find_claude()
+CLAUDE_COMMAND_LIST = resolve_claude_command()
 
 
 def read_message() -> dict:
@@ -74,7 +52,7 @@ def main() -> None:
             try:
                 with open(tmp.name) as stdin_file:
                     result = subprocess.run(
-                        [CLAUDE_BIN, "-p", "--output-format", "text"],
+                        prepare_command(CLAUDE_COMMAND_LIST, output_format="text"),
                         stdin=stdin_file,
                         capture_output=True,
                         text=True,

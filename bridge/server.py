@@ -9,25 +9,9 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from context_assembler import assemble
+from utils import resolve_claude_command, prepare_command
 
-# Resolve claude binary once at startup (same logic as native_host.py)
-_CLAUDE_SEARCH_PATHS = [
-    "/Users/codeclouds-sayan/.local/bin/claude",
-    "/usr/local/bin/claude",
-    "/opt/homebrew/bin/claude",
-    "/usr/bin/claude",
-]
-
-def _find_claude() -> str:
-    import os
-    if env := os.environ.get("CLAUDE_BIN"):
-        return env
-    extra = ":".join(__import__("os").path.dirname(p) for p in _CLAUDE_SEARCH_PATHS)
-    augmented = extra + ":" + __import__("os").environ.get("PATH", "")
-    found = shutil.which("claude", path=augmented)
-    return found or "claude"
-
-CLAUDE_BIN = _find_claude()
+CLAUDE_COMMAND_LIST = resolve_claude_command()
 
 app = FastAPI()
 
@@ -52,9 +36,7 @@ def run_claude(full_prompt: str, model: str, output_format: str = "text") -> sub
     try:
         tmp.write(full_prompt)
         tmp.close()
-        cmd = [CLAUDE_BIN, "-p", "--output-format", output_format]
-        if model:
-            cmd += ["--model", model]
+        cmd = prepare_command(CLAUDE_COMMAND_LIST, model, output_format)
         with open(tmp.name) as stdin_file:
             return subprocess.run(cmd, stdin=stdin_file, capture_output=True, text=True, timeout=120)
     finally:
@@ -84,9 +66,7 @@ def run_task_stream(req: TaskRequest):
         try:
             tmp.write(full_prompt)
             tmp.close()
-            stream_cmd = [CLAUDE_BIN, "-p", "--output-format", "stream-json"]
-            if req.model:
-                stream_cmd += ["--model", req.model]
+            stream_cmd = prepare_command(CLAUDE_COMMAND_LIST, req.model, "stream-json")
             stdin_file = open(tmp.name)
             process = subprocess.Popen(
                 stream_cmd,
