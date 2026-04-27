@@ -14,7 +14,6 @@ import tempfile
 # Ensure bridge/ is on the path so context_assembler can be imported
 sys.path.insert(0, os.path.dirname(__file__))
 from context_assembler import assemble
-from openrouter_client import call_openrouter
 from utils import resolve_claude_command, prepare_command
 
 CLAUDE_COMMAND_LIST = resolve_claude_command()
@@ -45,6 +44,7 @@ def main() -> None:
             history = message.get("history", [])
 
             if provider == "openrouter":
+                from openrouter_client import call_openrouter  # lazy: needs openai package
                 result = call_openrouter(
                     api_key=message.get("api_key", ""),
                     model=message.get("model", ""),

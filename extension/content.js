@@ -221,32 +221,35 @@
 
   // ── Actions → background.js ──────────────────────────────────────────────
 
-  function onAction(action, code) {
-    if (!chrome.runtime?.sendMessage) {
-      showResponse("Extension context invalidated. Please reload the page.", action);
-      return;
+  function sendMsg(msg) {
+    try {
+      return chrome.runtime.sendMessage(msg);
+    } catch {
+      return Promise.reject(new Error("context-invalidated"));
     }
+  }
+
+  function onAction(action, code) {
     pendingRect = lastRect;
     hideToolbar();
     showLoading(action);
-    chrome.runtime.sendMessage({
+    sendMsg({
       type: "CODE_ACTION",
       action,
       code,
       url: window.location.href,
       title: document.title,
-    }).catch(() => {
-      showResponse("Failed to reach the bridge. Is it running?", action);
+    }).catch((err) => {
+      const msg = err?.message === "context-invalidated"
+        ? "Extension reloaded — please refresh the page."
+        : "Failed to reach the bridge. Is it running?";
+      showResponse(msg, action);
     });
   }
 
   function onReplace(btn, code) {
-    if (!chrome.runtime?.sendMessage) {
-      btn.textContent = "✗ Error";
-      return;
-    }
     btn.textContent = "…";
-    chrome.runtime.sendMessage({ type: "REPLACE_CODE", code }).then((res) => {
+    sendMsg({ type: "REPLACE_CODE", code }).then((res) => {
       if (res?.ok) {
         btn.textContent = "✓ Replaced";
         btn.className = "cb-btn-done";
@@ -302,27 +305,22 @@
 
       // 2. No DOM selection — ask background.js to read from MAIN world
       //    (handles Monaco, CodeMirror, ACE whose selections are internal)
-      if (chrome.runtime && chrome.runtime.sendMessage) {
-        chrome.runtime.sendMessage({ type: "READ_SELECTION" }).then((res) => {
-          const text = res?.text?.trim() || "";
-          if (text.length >= 10) {
-            // Use mouse position to build a synthetic rect for positioning
-            const rect = {
-              left: lastMousePos.x - 100,
-              right: lastMousePos.x + 100,
-              top: lastMousePos.y - 20,
-              bottom: lastMousePos.y,
-              width: 200,
-              height: 20,
-            };
-            showToolbar(rect, text);
-          } else {
-            hideToolbar();
-          }
-        }).catch(() => {});
-      } else {
-        hideToolbar();
-      }
+      sendMsg({ type: "READ_SELECTION" }).then((res) => {
+        const text = res?.text?.trim() || "";
+        if (text.length >= 10) {
+          const rect = {
+            left: lastMousePos.x - 100,
+            right: lastMousePos.x + 100,
+            top: lastMousePos.y - 20,
+            bottom: lastMousePos.y,
+            width: 200,
+            height: 20,
+          };
+          showToolbar(rect, text);
+        } else {
+          hideToolbar();
+        }
+      }).catch(() => { hideToolbar(); });
     }, 400);
   }
 
