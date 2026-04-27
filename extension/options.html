@@ -5,9 +5,8 @@
   <title>Claude Code Bridge — Settings</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-
     body {
-      width: 460px;
+      width: 520px;
       background: #1e1e2e;
       color: #cdd6f4;
       font-family: system-ui, sans-serif;
@@ -17,27 +16,37 @@
       flex-direction: column;
       gap: 20px;
     }
+    h1 { font-size: 15px; font-weight: 600; color: #89b4fa; }
+    h2 { font-size: 12px; font-weight: 600; color: #a6adc8; text-transform: uppercase; letter-spacing: .04em; }
 
-    h1 {
-      font-size: 15px;
-      font-weight: 600;
-      color: #89b4fa;
+    .provider-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
     }
-
-    .field {
+    .provider-card {
       display: flex;
       flex-direction: column;
-      gap: 5px;
-    }
-
-    label {
-      font-size: 12px;
+      align-items: center;
+      gap: 6px;
+      padding: 10px 6px;
+      background: #313244;
+      border: 2px solid transparent;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: border-color .15s;
+      font-size: 11px;
       color: #a6adc8;
-      font-weight: 500;
+      user-select: none;
     }
+    .provider-card:hover { border-color: #45475a; }
+    .provider-card.active { border-color: #89b4fa; color: #cdd6f4; }
+    .provider-card .icon { font-size: 20px; }
 
-    input[type="text"],
-    input[type="number"] {
+    .config-panel { display: flex; flex-direction: column; gap: 12px; }
+    .field { display: flex; flex-direction: column; gap: 5px; }
+    label { font-size: 12px; color: #a6adc8; font-weight: 500; }
+    input[type="text"], input[type="password"], input[type="number"] {
       background: #313244;
       border: 1px solid #45475a;
       border-radius: 6px;
@@ -47,20 +56,43 @@
       outline: none;
       width: 100%;
     }
-
     input:focus { border-color: #89b4fa; }
+    .hint { font-size: 11px; color: #6c7086; }
 
-    .hint {
-      font-size: 11px;
-      color: #6c7086;
-    }
-
-    .actions {
+    details { border: 1px solid #313244; border-radius: 8px; padding: 2px; }
+    summary {
+      padding: 8px 12px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      color: #a6adc8;
+      list-style: none;
       display: flex;
-      gap: 8px;
       align-items: center;
+      gap: 6px;
     }
+    summary::before { content: "▸"; font-size: 10px; transition: transform .15s; }
+    details[open] summary::before { transform: rotate(90deg); }
+    .advanced-body { padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+    .action-row {
+      display: grid;
+      grid-template-columns: 110px 1fr;
+      align-items: center;
+      gap: 10px;
+    }
+    .action-label { font-size: 12px; color: #cdd6f4; }
+    select {
+      background: #313244;
+      border: 1px solid #45475a;
+      border-radius: 6px;
+      color: #cdd6f4;
+      padding: 5px 8px;
+      font-size: 12px;
+      outline: none;
+    }
+    select:focus { border-color: #89b4fa; }
 
+    .actions { display: flex; gap: 8px; align-items: center; }
     button {
       background: #5c6bc0;
       color: #fff;
@@ -71,39 +103,112 @@
       font-weight: 600;
       cursor: pointer;
     }
-
     button:hover { background: #7986cb; }
-
     button.secondary {
       background: #313244;
       color: #cdd6f4;
       border: 1px solid #45475a;
       font-weight: 400;
     }
-
     button.secondary:hover { border-color: #6c7086; }
-
-    #status {
-      font-size: 12px;
-      color: #a6e3a1;
-      min-height: 16px;
-    }
+    #status { font-size: 12px; color: #a6e3a1; min-height: 16px; }
+    #status.error { color: #f38ba8; }
+    .hidden { display: none !important; }
   </style>
 </head>
 <body>
   <h1>Claude Code Bridge — Settings</h1>
 
-  <div class="field">
-    <label for="bridgePort">Bridge port</label>
-    <input type="number" id="bridgePort" min="1024" max="65535" placeholder="8765" />
-    <span class="hint">Default: 8765. Change if the port is already in use.</span>
+  <div>
+    <h2 style="margin-bottom:10px">Active Provider</h2>
+    <div class="provider-grid">
+      <div class="provider-card" data-provider="claude-cli">
+        <span class="icon">🤖</span>Claude CLI
+      </div>
+      <div class="provider-card" data-provider="anthropic">
+        <span class="icon">✦</span>Anthropic
+      </div>
+      <div class="provider-card" data-provider="openai">
+        <span class="icon">⬡</span>OpenAI
+      </div>
+      <div class="provider-card" data-provider="openrouter">
+        <span class="icon">⇌</span>OpenRouter
+      </div>
+    </div>
   </div>
 
-  <div class="field">
-    <label for="model">Model override</label>
-    <input type="text" id="model" placeholder="Leave blank to use CLI default" />
-    <span class="hint">E.g. claude-opus-4-6. Passed as --model flag when set.</span>
+  <div class="config-panel">
+    <div id="cfg-claude-cli">
+      <div class="field">
+        <label for="bridgePort">Bridge port</label>
+        <input type="number" id="bridgePort" min="1024" max="65535" placeholder="8765" />
+        <span class="hint">Default: 8765. Change if the port is already in use.</span>
+      </div>
+      <div class="field" style="margin-top:10px">
+        <label for="cli-model">Model override</label>
+        <input type="text" id="cli-model" placeholder="Leave blank to use CLI default" />
+        <span class="hint">E.g. claude-opus-4-7. Passed as --model flag.</span>
+      </div>
+    </div>
+
+    <div id="cfg-anthropic" class="hidden">
+      <div class="field">
+        <label for="anthropic-key">Anthropic API key</label>
+        <input type="password" id="anthropic-key" placeholder="sk-ant-..." />
+      </div>
+      <div class="field" style="margin-top:10px">
+        <label for="anthropic-model">Model</label>
+        <input type="text" id="anthropic-model" placeholder="claude-sonnet-4-6" />
+        <span class="hint">Leave blank to use claude-sonnet-4-6.</span>
+      </div>
+    </div>
+
+    <div id="cfg-openai" class="hidden">
+      <div class="field">
+        <label for="openai-key">OpenAI API key</label>
+        <input type="password" id="openai-key" placeholder="sk-..." />
+      </div>
+      <div class="field" style="margin-top:10px">
+        <label for="openai-model">Model</label>
+        <input type="text" id="openai-model" placeholder="gpt-4o" />
+      </div>
+    </div>
+
+    <div id="cfg-openrouter" class="hidden">
+      <div class="field">
+        <label for="openrouter-key">OpenRouter API key</label>
+        <input type="password" id="openrouter-key" placeholder="sk-or-..." />
+      </div>
+      <div class="field" style="margin-top:10px">
+        <label for="openrouter-model">Model</label>
+        <input type="text" id="openrouter-model" placeholder="openai/gpt-4o" />
+        <span class="hint">Full model path, e.g. anthropic/claude-3-5-sonnet or mistralai/mistral-7b-instruct.</span>
+      </div>
+    </div>
   </div>
+
+  <details>
+    <summary>Advanced — per-action provider</summary>
+    <div class="advanced-body">
+      <p class="hint" style="margin-bottom:4px">Override the provider for a specific action. Leave as "Use active provider" to follow the global setting.</p>
+      <div class="action-row">
+        <span class="action-label">Improve</span>
+        <select id="ap-Improve"></select>
+      </div>
+      <div class="action-row">
+        <span class="action-label">Audit</span>
+        <select id="ap-Audit"></select>
+      </div>
+      <div class="action-row">
+        <span class="action-label">Fix bugs</span>
+        <select id="ap-Fix bugs"></select>
+      </div>
+      <div class="action-row">
+        <span class="action-label">Explain</span>
+        <select id="ap-Explain"></select>
+      </div>
+    </div>
+  </details>
 
   <div class="actions">
     <button id="save">Save</button>
