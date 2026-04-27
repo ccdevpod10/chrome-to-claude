@@ -364,6 +364,18 @@ async function callProviderAPI(provider, config, payload) {
   }
 }
 
+async function parseProviderError(label, res) {
+  const text = await res.text();
+  try {
+    const json = JSON.parse(text);
+    const msg = json?.error?.message || json?.message || text;
+    throw new Error(`${label} ${res.status}: ${msg}`);
+  } catch (e) {
+    if (e.message.startsWith(label)) throw e;
+    throw new Error(`${label} ${res.status}: ${text}`);
+  }
+}
+
 async function callAnthropic(apiKey, model, messages) {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -374,7 +386,7 @@ async function callAnthropic(apiKey, model, messages) {
     },
     body: JSON.stringify({ model, max_tokens: 8192, messages }),
   });
-  if (!res.ok) throw new Error("Anthropic " + res.status + ": " + await res.text());
+  if (!res.ok) await parseProviderError("Anthropic", res);
   const data = await res.json();
   return data.content[0].text;
 }
@@ -388,7 +400,7 @@ async function callOpenAI(apiKey, model, messages) {
     },
     body: JSON.stringify({ model, messages }),
   });
-  if (!res.ok) throw new Error("OpenAI " + res.status + ": " + await res.text());
+  if (!res.ok) await parseProviderError("OpenAI", res);
   const data = await res.json();
   return data.choices[0].message.content;
 }
@@ -399,11 +411,11 @@ async function callOpenRouter(apiKey, model, messages) {
     headers: {
       Authorization: "Bearer " + apiKey,
       "Content-Type": "application/json",
-      "HTTP-Referer": "chrome-extension://claude-bridge",
+      "X-Title": "Claude Code Bridge",
     },
     body: JSON.stringify({ model, messages }),
   });
-  if (!res.ok) throw new Error("OpenRouter " + res.status + ": " + await res.text());
+  if (!res.ok) await parseProviderError("OpenRouter", res);
   const data = await res.json();
   return data.choices[0].message.content;
 }
