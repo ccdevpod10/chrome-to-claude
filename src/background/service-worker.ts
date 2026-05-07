@@ -25,6 +25,107 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
   }
 });
 
+async function handleAssist(msg: AssistRequest): Promise<void> {
+  const ac = new AbortController();
+  inflight.set(msg.id, ac);
+  const tabId = msg.tabId;
+
+  let tabHistory: ConversationMessage[] = [];
+
+  try {
+    broadcast({ type: "ASSIST_START", id: msg.id, original: msg.code, action: msg.action, tabId: tabId ?? -1 });
+
+    const settings = await getSettings();
+    const provider = pickUsableProvider(settings) ?? getProvider(settings.providerId);
+    if (!provider) throw new Error("No provider selected. Open Options.");
+
+    const cfg = {
+      apiKey: settings.apiKeys[provider.id] ?? "",
+      model: settings.models[provider.id] ?? "",
+      baseUrl: settings.baseUrls?.[provider.id],
+    };
+    if (provider.id !== "local" && !cfg.apiKey) {
+      throw new Error(`Missing API key for ${provider.label}. Open Settings to configure.`);
+    }
+
+    tabHistory = tabId != null ? await getHistory(tabId) : [];
+    const { system, user } = buildPrompt(msg.action, msg.code, { lang: msg.language, ctxBefore: msg.contextBefore, ctxAfter: msg.contextAfter, diagnostics: msg.diagnostics, history: getLastN(tabHistory), fileContext: msg.fileContext, freeText: msg.freeText });
+
+    let watchdog: number | undefined;
+    const bumpWatchdog = () => {
+      if (watchdog !== undefined) clearTimeout(watchdog);
+      watchdog = setTimeout(() => ac.abort(new DOMException("No data for 45s", "TimeoutError")), 45_000) as unknown as number;
+    };
+    bumpWatchdog();
+
+    const full = await withRetry(
+      () =>
+        provider.generate(
+          {
+            system,
+            user,
+            signal: ac.signal,
+            onChunk: (delta) => {
+              bumpWatchdog();
+              broadcast({ type: "ASSIST_CHUNK", id: msg.id, delta });
+            },
+          },
+          cfg,
+        ),
+      { retries: 2 },
+    ).finally(() => { if (watchdog !== undefined) clearTimeout(watchdog); });
+
+    if (tabId != null) {
+      void appendMessage(tabId, { role: "user", content: msg.freeText ?? msg.code });
+      void appendMessage(tabId, { role: "assistant", content: full });
+    }
+    broadcast({ type: "ASSIST_DONE", id: msg.id, full });
+  } catch (err: unknown) {
+    const e = err as { name?: string; message?: string };
+    // User-initiated abort: don't fall back, don't surface as error.
+    if (e?.name === "AbortError") {
+      broadcast({ type: "ASSIST_ERROR", id: msg.id, error: "Cancelled" });
+      return;
+    }
+    const failed = e?.name === "TimeoutError"
+      ? "Stream timed out (no data for 45s). Click Retry."
+      : (e?.message ?? "Unknown error");
+    // Failover
+    const settings = await getSettings();
+    if (settings.fallbackProviderId && settings.fallbackProviderId !== settings.providerId) {
+      const fb = getProvider(settings.fallbackProviderId);
+      if (fb) {
+        try {
+          const cfg = {
+            apiKey: settings.apiKeys[fb.id] ?? "",
+            model: settings.models[fb.id] ?? "",
+            baseUrl: settings.baseUrls?.[fb.id],
+          };
+          const { system, user } = buildPrompt(msg.action, msg.code, { lang: msg.language, ctxBefore: msg.contextBefore, ctxAfter: msg.contextAfter, diagnostics: msg.diagnostics, history: getLastN(tabHistory), fileContext: msg.fileContext, freeText: msg.freeText });
+          const full = await fb.generate(
+            {
+              system, user, signal: ac.signal,
+              onChunk: (delta) => broadcast({ type: "ASSIST_CHUNK", id: msg.id, delta }),
+            },
+            cfg,
+          );
+          if (tabId != null) {
+            void appendMessage(tabId, { role: "user", content: msg.freeText ?? msg.code });
+            void appendMessage(tabId, { role: "assistant", content: full });
+          }
+          broadcast({ type: "ASSIST_DONE", id: msg.id, full });
+          return;
+        } catch (e2: unknown) {
+          log.error("fallback failed", e2);
+        }
+      }
+    }
+    broadcast({ type: "ASSIST_ERROR", id: msg.id, error: failed });
+  } finally {
+    inflight.delete(msg.id);
+  }
+}
+
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name === "panel") {
     panelPorts.add(port);
@@ -39,106 +140,8 @@ chrome.runtime.onConnect.addListener((port) => {
 
   port.onMessage.addListener(async (msg: AssistRequest) => {
     if (msg?.type !== "ASSIST_REQUEST") return;
-    const ac = new AbortController();
-    inflight.set(msg.id, ac);
     const tabId = port.sender?.tab?.id ?? msg.tabId;
-
-    let tabHistory: ConversationMessage[] = [];
-
-    try {
-      // No auto-open of side panel: the in-page popup (content script) listens on
-      // the "panel" port and is already connected before this request fires.
-      broadcast({ type: "ASSIST_START", id: msg.id, original: msg.code, action: msg.action, tabId: tabId ?? -1 });
-
-      const settings = await getSettings();
-      const provider = pickUsableProvider(settings) ?? getProvider(settings.providerId);
-      if (!provider) throw new Error("No provider selected. Open Options.");
-
-      const cfg = {
-        apiKey: settings.apiKeys[provider.id] ?? "",
-        model: settings.models[provider.id] ?? "",
-        baseUrl: settings.baseUrls?.[provider.id],
-      };
-      if (provider.id !== "local" && !cfg.apiKey) {
-        throw new Error(`Missing API key for ${provider.label}. Open Settings to configure.`);
-      }
-
-      tabHistory = tabId != null ? await getHistory(tabId) : [];
-      const { system, user } = buildPrompt(msg.action, msg.code, { lang: msg.language, ctxBefore: msg.contextBefore, ctxAfter: msg.contextAfter, diagnostics: msg.diagnostics, history: getLastN(tabHistory), fileContext: msg.fileContext, freeText: msg.freeText });
-
-      let watchdog: number | undefined;
-      const bumpWatchdog = () => {
-        if (watchdog !== undefined) clearTimeout(watchdog);
-        watchdog = setTimeout(() => ac.abort(new DOMException("No data for 45s", "TimeoutError")), 45_000) as unknown as number;
-      };
-      bumpWatchdog();
-
-      const full = await withRetry(
-        () =>
-          provider.generate(
-            {
-              system,
-              user,
-              signal: ac.signal,
-              onChunk: (delta) => {
-                bumpWatchdog();
-                broadcast({ type: "ASSIST_CHUNK", id: msg.id, delta });
-              },
-            },
-            cfg,
-          ),
-        { retries: 2 },
-      ).finally(() => { if (watchdog !== undefined) clearTimeout(watchdog); });
-
-      if (tabId != null) {
-        void appendMessage(tabId, { role: "user", content: msg.freeText ?? msg.code });
-        void appendMessage(tabId, { role: "assistant", content: full });
-      }
-      broadcast({ type: "ASSIST_DONE", id: msg.id, full });
-    } catch (err: unknown) {
-      const e = err as { name?: string; message?: string };
-      // User-initiated abort: don't fall back, don't surface as error.
-      if (e?.name === "AbortError") {
-        broadcast({ type: "ASSIST_ERROR", id: msg.id, error: "Cancelled" });
-        return;
-      }
-      const failed = e?.name === "TimeoutError"
-        ? "Stream timed out (no data for 45s). Click Retry."
-        : (e?.message ?? "Unknown error");
-      // Failover
-      const settings = await getSettings();
-      if (settings.fallbackProviderId && settings.fallbackProviderId !== settings.providerId) {
-        const fb = getProvider(settings.fallbackProviderId);
-        if (fb) {
-          try {
-            const cfg = {
-              apiKey: settings.apiKeys[fb.id] ?? "",
-              model: settings.models[fb.id] ?? "",
-              baseUrl: settings.baseUrls?.[fb.id],
-            };
-            const { system, user } = buildPrompt(msg.action, msg.code, { lang: msg.language, ctxBefore: msg.contextBefore, ctxAfter: msg.contextAfter, diagnostics: msg.diagnostics, history: getLastN(tabHistory), fileContext: msg.fileContext, freeText: msg.freeText });
-            const full = await fb.generate(
-              {
-                system, user, signal: ac.signal,
-                onChunk: (delta) => broadcast({ type: "ASSIST_CHUNK", id: msg.id, delta }),
-              },
-              cfg,
-            );
-            if (tabId != null) {
-              void appendMessage(tabId, { role: "user", content: msg.freeText ?? msg.code });
-              void appendMessage(tabId, { role: "assistant", content: full });
-            }
-            broadcast({ type: "ASSIST_DONE", id: msg.id, full });
-            return;
-          } catch (e2: unknown) {
-            log.error("fallback failed", e2);
-          }
-        }
-      }
-      broadcast({ type: "ASSIST_ERROR", id: msg.id, error: failed });
-    } finally {
-      inflight.delete(msg.id);
-    }
+    await handleAssist({ ...msg, tabId });
   });
 
   port.onDisconnect.addListener(() => {
@@ -191,6 +194,42 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   if (details.reason === "install") {
     try { await chrome.runtime.openOptionsPage(); } catch (e) { log.warn(e); }
   }
+  // Register context menu items — removeAll first to avoid duplicate-on-reload errors.
+  chrome.contextMenus.removeAll(() => {
+    chrome.contextMenus.create({ id: "ai-review",  title: "Review selection",  contexts: ["selection"] });
+    chrome.contextMenus.create({ id: "ai-debug",   title: "Debug selection",   contexts: ["selection"] });
+    chrome.contextMenus.create({ id: "ai-explain", title: "Explain selection", contexts: ["selection"] });
+  });
+});
+
+const CONTEXT_MENU_ACTION_MAP: Record<string, string> = {
+  "ai-review":  "review",
+  "ai-debug":   "debug-error",
+  "ai-explain": "explain",
+};
+
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  const menuItemId = String(info.menuItemId);
+  const action = CONTEXT_MENU_ACTION_MAP[menuItemId];
+  if (!action) return;
+
+  const selectionText = info.selectionText ?? "";
+  const tabId = tab?.id;
+
+  if (tabId !== undefined) {
+    void chrome.sidePanel.open({ tabId }).catch((e) => log.warn(e));
+  }
+
+  const req: AssistRequest = {
+    type: "ASSIST_REQUEST",
+    id: crypto.randomUUID(),
+    action: action as AssistRequest["action"],
+    code: selectionText,
+    url: tab?.url ?? "",
+    tabId,
+  };
+
+  void handleAssist(req);
 });
 
 chrome.action.onClicked.addListener(async (tab) => {

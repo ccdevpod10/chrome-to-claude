@@ -6,7 +6,7 @@ export default defineManifest({
   name: "AI Code Assistant",
   version: pkg.version,
   description: "Provider-agnostic AI assistant for web code editors.",
-  permissions: ["storage", "activeTab", "sidePanel", "scripting"],
+  permissions: ["storage", "activeTab", "sidePanel", "scripting", "contextMenus"],
   host_permissions: [
     "https://openrouter.ai/*",
     "https://api.openai.com/*",
