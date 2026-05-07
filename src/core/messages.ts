@@ -1,5 +1,7 @@
 export type Action = "fix" | "improve" | "audit" | "debug";
 
+export interface Diagnostic { level: "error" | "warn" | "info"; message: string }
+
 export interface AssistRequest {
   type: "ASSIST_REQUEST";
   id: string;
@@ -10,6 +12,8 @@ export interface AssistRequest {
   contextAfter?: string;
   url: string;
   tabId?: number;
+  /** Pre-flight findings (e.g. JS dry-run for the debug action). */
+  diagnostics?: Diagnostic[];
 }
 
 export interface AssistChunk { type: "ASSIST_CHUNK"; id: string; delta: string }

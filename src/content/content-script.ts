@@ -3,7 +3,8 @@ import { createTooltip } from "./tooltip";
 import { createResultPopup } from "./result-popup";
 import { createSettingsModal } from "./settings-modal";
 import { getShell } from "./ui-shell";
-import type { Action, AssistRequest, ReplaceRequest, SWMessage, TriggerTooltip } from "../core/messages";
+import { dryRunJs, isJsLanguage, looksLikeJs } from "./dry-run";
+import type { Action, AssistRequest, Diagnostic, ReplaceRequest, SWMessage, TriggerTooltip } from "../core/messages";
 
 getShell();
 const tooltip = createTooltip();
@@ -69,22 +70,40 @@ chrome.runtime.onMessage.addListener((msg: TriggerTooltip | ReplaceRequest) => {
   }
 });
 
-function runAction(action: Action) {
+async function runAction(action: Action) {
   if (!active) return;
   ensurePanelPort();
   const id = crypto.randomUUID();
-  popup.start(id, action, active.info.text);
+  const code = active.info.text;
+  const language = active.info.language;
+
+  popup.start(id, action, code);
   popup.showAt(lastAnchorRect ?? active.info.rect);
   tooltip.hide();
+
+  // For "debug" on JS/jQuery, run a sandboxed dry-run first so the LLM
+  // gets grounded findings instead of guessing.
+  let diagnostics: Diagnostic[] | undefined;
+  if (action === "debug" && (isJsLanguage(language) || looksLikeJs(code))) {
+    popup.setBusyMessage("Running dry-run test on the snippet…");
+    try {
+      diagnostics = await dryRunJs(code);
+    } catch (e) {
+      diagnostics = [{ level: "warn", message: `Dry-run failed: ${(e as Error).message}` }];
+    }
+    popup.setBusyMessage(null);
+    popup.setDiagnostics(diagnostics ?? null);
+  }
 
   const port = chrome.runtime.connect({ name: "assist" });
   const req: AssistRequest = {
     type: "ASSIST_REQUEST",
     id,
     action,
-    code: active.info.text,
-    language: active.info.language,
+    code,
+    language,
     url: location.href,
+    diagnostics,
   };
   port.postMessage(req);
   setTimeout(() => { try { port.disconnect(); } catch { /* noop */ } }, 5 * 60 * 1000);

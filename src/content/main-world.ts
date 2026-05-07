@@ -64,7 +64,11 @@
       if (op === "monaco.getSelection") {
         const f = findFocusedMonaco();
         if (!f) return send(id, true, null);
-        const sel = f.editor.getSelection();
+        const sel = f.editor.getSelection() as {
+          startLineNumber: number; startColumn: number;
+          endLineNumber: number; endColumn: number;
+        } | null;
+        if (!sel) return send(id, true, null);
         const text = f.editor.getModel().getValueInRange(sel);
         if (!text) return send(id, true, null);
         const node = f.editor.getDomNode()!;
@@ -74,16 +78,53 @@
           language: f.editor.getModel().getLanguageId(),
           rect: { top: r.top, left: r.left, right: r.right, bottom: r.bottom, width: r.width, height: r.height, x: r.x, y: r.y },
           editorIndex: f.index,
+          // Snapshot the range so replace can target the original selection
+          // even after focus has moved into our popup (which collapses cursor).
+          range: {
+            startLineNumber: sel.startLineNumber,
+            startColumn: sel.startColumn,
+            endLineNumber: sel.endLineNumber,
+            endColumn: sel.endColumn,
+          },
         });
       }
 
       if (op === "monaco.replace") {
-        const { editorIndex, text } = payload as { editorIndex: number; text: string };
+        const { editorIndex, text, range } = payload as {
+          editorIndex: number; text: string;
+          range?: { startLineNumber: number; startColumn: number; endLineNumber: number; endColumn: number };
+        };
         const ed = monacoEditors()[editorIndex];
         if (!ed) return send(id, false, null, "editor gone");
-        ed.focus();
-        const ok = ed.executeEdits("ai-assist", [{ range: ed.getSelection(), text, forceMoveMarkers: true }]);
-        return send(id, true, { ok });
+        const model = ed.getModel() as unknown as {
+          applyEdits(edits: { range: unknown; text: string; forceMoveMarkers?: boolean }[]): unknown[];
+          getLineCount(): number;
+          getLineMaxColumn(line: number): number;
+        };
+        // Use the captured range; fall back to current selection only if absent.
+        const targetRange = range ?? (ed.getSelection() as unknown);
+        if (!targetRange) return send(id, false, null, "no target range");
+        // model.applyEdits is a pure model op — no auto-indent, no formatter.
+        // executeEdits would route through the editor and (in some hosts) trigger
+        // autoIndent: 'full' which compounds indentation per inserted newline.
+        try {
+          model.applyEdits([{ range: targetRange, text, forceMoveMarkers: true }]);
+          // Place cursor at end of inserted text.
+          const lines = text.split("\n");
+          const r = targetRange as { startLineNumber: number; startColumn: number };
+          const endLine = r.startLineNumber + lines.length - 1;
+          const endCol = lines.length === 1
+            ? r.startColumn + lines[0].length
+            : lines[lines.length - 1].length + 1;
+          (ed as unknown as { setSelection: (s: object) => void }).setSelection({
+            startLineNumber: endLine, startColumn: endCol,
+            endLineNumber: endLine, endColumn: endCol,
+          });
+          ed.focus();
+          return send(id, true, { ok: true });
+        } catch (e) {
+          return send(id, false, null, (e as Error)?.message ?? String(e));
+        }
       }
 
       if (op === "cm6.getSelection") {

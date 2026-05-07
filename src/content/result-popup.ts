@@ -1,5 +1,5 @@
 import { diffLines } from "diff";
-import type { Action, SWMessage } from "../core/messages";
+import type { Action, Diagnostic, SWMessage } from "../core/messages";
 import { extractCode } from "../core/prompt-builder";
 import { getShell, ICONS, escapeHtml } from "./ui-shell";
 
@@ -32,6 +32,8 @@ export interface ResultPopupApi {
   pushChunk(id: string, delta: string): void;
   done(id: string, full: string): void;
   fail(id: string, error: string): void;
+  setBusyMessage(message: string | null): void;
+  setDiagnostics(d: Diagnostic[] | null): void;
   isOpen(): boolean;
   ingest(m: SWMessage): void;
 }
@@ -64,6 +66,13 @@ export function createResultPopup(h: PopupHandlers): ResultPopupApi {
 
     <div class="err" data-region="error" hidden></div>
 
+    <div class="busy" data-region="busy" hidden></div>
+
+    <div class="diagnostics" data-region="diagnostics" hidden>
+      <div class="diag-head"><span class="dot"></span> <span data-region="diag-title">Pre-flight findings</span></div>
+      <ul data-region="diag-list"></ul>
+    </div>
+
     <div class="tabs">
       <button data-tab="output">Output</button>
       <button data-tab="diff">Diff</button>
@@ -92,6 +101,9 @@ export function createResultPopup(h: PopupHandlers): ResultPopupApi {
   const pill       = $('[data-region="pill"]');
   const pillLabel  = $('[data-region="pill-label"]');
   const errBox     = $('[data-region="error"]');
+  const busyBox    = $('[data-region="busy"]');
+  const diagBox    = $('[data-region="diagnostics"]');
+  const diagList   = $('[data-region="diag-list"]');
   const body       = $('[data-region="body"]');
   const streamBar  = $('[data-region="stream-bar"]');
   const notesBox   = $('[data-region="notes"]');
@@ -285,6 +297,9 @@ export function createResultPopup(h: PopupHandlers): ResultPopupApi {
     isOpen: () => !root.hidden,
     start(id, action, original) {
       Object.assign(state, { id, action, original, streamed: "", status: "streaming" as Status, tab: "output" as Tab, error: undefined, copied: false });
+      // Clear transient panels from any prior run.
+      busyBox.hidden = true; busyBox.innerHTML = "";
+      diagBox.hidden = true; diagList.innerHTML = "";
       render();
       // New session: scroll to top
       body.scrollTop = 0;
@@ -292,7 +307,34 @@ export function createResultPopup(h: PopupHandlers): ResultPopupApi {
     pushChunk(id, delta) {
       if (id !== state.id) return;
       state.streamed += delta;
+      // First chunk arrived → drop the "Running dry-run…" busy line if still up.
+      busyBox.hidden = true;
       render();
+    },
+    setBusyMessage(message) {
+      if (message) {
+        busyBox.innerHTML = `<span class="spin"></span> ${escapeHtml(message)}`;
+        busyBox.hidden = false;
+      } else {
+        busyBox.hidden = true;
+        busyBox.innerHTML = "";
+      }
+      reflowIntoView();
+    },
+    setDiagnostics(d) {
+      if (!d || !d.length) {
+        diagBox.hidden = true;
+        diagList.innerHTML = "";
+        return;
+      }
+      const items = d.map((x) => {
+        const cls = x.level === "error" ? "diag-error" : x.level === "warn" ? "diag-warn" : "diag-info";
+        const tag = x.level.toUpperCase();
+        return `<li class="${cls}"><span class="tag">${tag}</span> ${escapeHtml(x.message)}</li>`;
+      }).join("");
+      diagList.innerHTML = items;
+      diagBox.hidden = false;
+      reflowIntoView();
     },
     done(id, full) {
       if (id !== state.id) return;

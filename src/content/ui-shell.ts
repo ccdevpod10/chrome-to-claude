@@ -133,6 +133,29 @@ const STYLE = `
 
   .err{ margin: 10px 12px 0; padding:10px 12px; border-radius:10px; font-size:12px;
     background: rgba(244,63,94,.1); border:1px solid rgba(244,63,94,.3); color:#fecaca; }
+
+  .busy{ margin: 10px 12px 0; padding: 8px 12px; border-radius:10px; font-size:12px;
+    background: rgba(99,102,241,.08); border:1px solid rgba(99,102,241,.25); color:#c7d2fe;
+    display:flex; align-items:center; gap:8px; }
+  .busy .spin{ width:12px; height:12px; border-radius:50%;
+    border:2px solid rgba(199,210,254,.25); border-top-color:#a5b4fc;
+    animation: spin 0.7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .diagnostics{ margin: 10px 12px 0; padding: 10px 12px; border-radius:10px;
+    background: rgba(255,255,255,.03); border:1px solid rgba(255,255,255,.08);
+    max-height: 22vh; overflow:auto; }
+  .diagnostics .diag-head{ display:flex; align-items:center; gap:6px;
+    font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.06em;
+    color:#a1a1aa; margin-bottom:6px; }
+  .diagnostics .diag-head .dot{ width:6px; height:6px; border-radius:50%; background:#a5b4fc; }
+  .diagnostics ul{ list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:4px; }
+  .diagnostics li{ font-size:12px; line-height:1.5; display:flex; gap:6px; align-items:flex-start; }
+  .diagnostics li .tag{ flex:0 0 auto; font: 600 9px/1.6 ui-monospace, monospace;
+    padding: 1px 6px; border-radius:4px; letter-spacing:.04em; }
+  .diagnostics li.diag-error{ color:#fecaca; } .diagnostics li.diag-error .tag{ background:rgba(244,63,94,.2); color:#fda4af; }
+  .diagnostics li.diag-warn { color:#fde68a; } .diagnostics li.diag-warn  .tag{ background:rgba(245,158,11,.2); color:#fcd34d; }
+  .diagnostics li.diag-info { color:#bae6fd; } .diagnostics li.diag-info  .tag{ background:rgba(56,189,248,.2); color:#7dd3fc; }
   .err button{
     margin-top: 6px; background: rgba(244,63,94,.85); color:#fff; border:0; padding:5px 10px;
     border-radius:6px; cursor:pointer; font: 500 11px/1 inherit;

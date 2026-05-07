@@ -1,5 +1,6 @@
 import { EditorAdapter, SelectionInfo } from "./base";
 import { bridgeCall } from "../bridge";
+import { reindent } from "../reindent";
 
 interface RectLike { top: number; left: number; right: number; bottom: number; width: number; height: number; x: number; y: number }
 interface CM6SelData { text: string; from: number; to: number; viewIndex: number; rect: RectLike }
@@ -17,7 +18,7 @@ export const codemirrorAdapter: EditorAdapter = {
         text: data.text,
         rect: data.rect as unknown as DOMRect,
         el: cm6Root,
-        handle: { kind: "cm6", viewIndex: data.viewIndex, from: data.from, to: data.to },
+        handle: { kind: "cm6", viewIndex: data.viewIndex, from: data.from, to: data.to, originalText: data.text },
       };
     }
     // CM5 fallback via browser selection
@@ -28,17 +29,18 @@ export const codemirrorAdapter: EditorAdapter = {
       text: sel.toString(),
       rect: sel.getRangeAt(0).getBoundingClientRect(),
       el: cm5Root,
-      handle: { kind: "cm5" },
+      handle: { kind: "cm5", originalText: sel.toString() },
     };
   },
 
   async replaceSelection(info, newText) {
-    const h = info.handle as { kind: string; viewIndex?: number; from?: number; to?: number };
+    const h = info.handle as { kind: string; viewIndex?: number; from?: number; to?: number; originalText: string };
+    const aligned = reindent(h.originalText, newText);
     if (h.kind === "cm6") {
-      const r = await bridgeCall<{ ok: boolean }>("cm6.replace", { viewIndex: h.viewIndex, from: h.from, to: h.to, text: newText }, 1000);
+      const r = await bridgeCall<{ ok: boolean }>("cm6.replace", { viewIndex: h.viewIndex, from: h.from, to: h.to, text: aligned }, 1000);
       return !!r?.ok;
     }
-    document.execCommand("insertText", false, newText);
+    document.execCommand("insertText", false, aligned);
     return true;
   },
 };
