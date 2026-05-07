@@ -50,4 +50,11 @@ export const textareaAdapter: EditorAdapter = {
     }
     return false;
   },
+
+  getFileContent(el) {
+    if (el instanceof HTMLTextAreaElement || el instanceof HTMLInputElement) {
+      return Promise.resolve(el.value);
+    }
+    return Promise.resolve((el as HTMLElement).innerText);
+  },
 };

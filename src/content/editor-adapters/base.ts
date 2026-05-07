@@ -11,4 +11,5 @@ export interface EditorAdapter {
   matches(el: Element): boolean;
   getSelection(el: Element): Promise<SelectionInfo | null> | SelectionInfo | null;
   replaceSelection(info: SelectionInfo, newText: string): Promise<boolean> | boolean;
+  getFileContent(el: Element): Promise<string | null>;
 }

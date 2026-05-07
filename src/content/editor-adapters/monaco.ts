@@ -38,4 +38,9 @@ export const monacoAdapter: EditorAdapter = {
     );
     return !!r?.ok;
   },
+
+  async getFileContent(_el) {
+    const data = await bridgeCall<{ content: string }>("monaco.getFileContent", {}, 500);
+    return data?.content ?? null;
+  },
 };

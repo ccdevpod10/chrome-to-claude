@@ -15,7 +15,7 @@
   type Editor = {
     getDomNode(): HTMLElement | null;
     getSelection(): unknown;
-    getModel(): { getValueInRange(r: unknown): string; getLanguageId(): string };
+    getModel(): { getValueInRange(r: unknown): string; getLanguageId(): string; getValue(): string };
     executeEdits(src: string, edits: { range: unknown; text: string; forceMoveMarkers?: boolean }[]): boolean;
     focus(): void;
   };
@@ -41,7 +41,7 @@
 
   // CodeMirror 6: walk DOM, find .cm-editor, read EditorView from cmView property.
   type CM6View = {
-    state: { selection: { main: { from: number; to: number; empty: boolean } }; doc: { sliceString(a: number, b: number): string } };
+    state: { selection: { main: { from: number; to: number; empty: boolean } }; doc: { sliceString(a: number, b: number): string; toString(): string } };
     dispatch(tr: unknown): void;
     contentDOM: HTMLElement;
     dom: HTMLElement;
@@ -152,6 +152,22 @@
         if (!v) return send(id, false, null, "view gone");
         v.dispatch({ changes: { from, to, insert: text } });
         return send(id, true, { ok: true });
+      }
+
+      if (op === "monaco.getFileContent") {
+        const f = findFocusedMonaco();
+        if (!f) return send(id, true, null);
+        const content = f.editor.getModel().getValue();
+        return send(id, true, { content });
+      }
+
+      if (op === "cm6.getFileContent") {
+        const views = collectCM6Views();
+        for (const v of views) {
+          const content = v.state.doc.toString();
+          if (content) return send(id, true, { content });
+        }
+        return send(id, true, null);
       }
 
       send(id, false, null, "unknown op: " + op);
