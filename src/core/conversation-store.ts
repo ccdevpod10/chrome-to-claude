@@ -13,8 +13,9 @@ const writeQueues = new Map<number, Promise<void>>();
 
 function enqueueWrite(tabId: number, fn: () => Promise<void>): Promise<void> {
   const prev = writeQueues.get(tabId) ?? Promise.resolve();
-  const next = prev.then(fn).catch(() => {
-    // Swallow errors in queue to keep chain alive
+  const next = prev.then(fn).catch((err) => {
+    // Log but keep chain alive — writes are fire-and-forget
+    console.warn("[conversation-store] write failed:", err);
   });
   writeQueues.set(tabId, next);
   // Cleanup: clear queue ref after settle to avoid memory leak
@@ -97,5 +98,5 @@ export async function clearHistory(tabId: number): Promise<void> {
  */
 export function getLastN(history: ConversationMessage[], n = 6): ConversationMessage[] {
   const count = n * 2;
-  return history.length > count ? history.slice(history.length - count) : history.slice();
+  return history.length > count ? history.slice(history.length - count) : history;
 }

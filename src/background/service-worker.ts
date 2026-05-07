@@ -3,7 +3,7 @@ import { buildPrompt } from "../core/prompt-builder";
 import { getSettings, type Settings } from "../utils/storage";
 import { withRetry } from "../utils/retry";
 import { log } from "../utils/logger";
-import type { AssistRequest, SWMessage } from "../core/messages";
+import type { AssistRequest, ConversationMessage, SWMessage } from "../core/messages";
 import { getHistory, appendMessage, clearHistory, getLastN } from "../core/conversation-store";
 
 const inflight = new Map<string, AbortController>();
@@ -40,6 +40,8 @@ chrome.runtime.onConnect.addListener((port) => {
     inflight.set(msg.id, ac);
     const tabId = port.sender?.tab?.id ?? msg.tabId;
 
+    let tabHistory: ConversationMessage[] = [];
+
     try {
       // No auto-open of side panel: the in-page popup (content script) listens on
       // the "panel" port and is already connected before this request fires.
@@ -58,7 +60,7 @@ chrome.runtime.onConnect.addListener((port) => {
         throw new Error(`Missing API key for ${provider.label}. Open Settings to configure.`);
       }
 
-      const tabHistory = tabId != null ? await getHistory(tabId) : [];
+      tabHistory = tabId != null ? await getHistory(tabId) : [];
       const { system, user } = buildPrompt(msg.action, msg.code, { lang: msg.language, ctxBefore: msg.contextBefore, ctxAfter: msg.contextAfter, diagnostics: msg.diagnostics, history: getLastN(tabHistory), fileContext: msg.fileContext, freeText: msg.freeText });
 
       let watchdog: number | undefined;
@@ -111,8 +113,7 @@ chrome.runtime.onConnect.addListener((port) => {
               model: settings.models[fb.id] ?? "",
               baseUrl: settings.baseUrls?.[fb.id],
             };
-            const fbTabHistory = tabId != null ? await getHistory(tabId) : [];
-            const { system, user } = buildPrompt(msg.action, msg.code, { lang: msg.language, ctxBefore: msg.contextBefore, ctxAfter: msg.contextAfter, diagnostics: msg.diagnostics, history: getLastN(fbTabHistory), fileContext: msg.fileContext, freeText: msg.freeText });
+            const { system, user } = buildPrompt(msg.action, msg.code, { lang: msg.language, ctxBefore: msg.contextBefore, ctxAfter: msg.contextAfter, diagnostics: msg.diagnostics, history: getLastN(tabHistory), fileContext: msg.fileContext, freeText: msg.freeText });
             const full = await fb.generate(
               {
                 system, user, signal: ac.signal,
