@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { SWMessage, Action, PaletteFire } from "../../core/messages";
+import { extractFilename } from "../../core/context-collector";
 import MessageThread, { ChatMessage } from "./MessageThread";
 import FollowUpInput from "./FollowUpInput";
 import { IconCog, IconSparkle } from "./Icons";
@@ -11,6 +12,7 @@ export default function App() {
   const [filename, setFilename] = useState<string | undefined>(undefined);
   const [language, setLanguage] = useState<string | undefined>(undefined);
   const portRef = useRef<chrome.runtime.Port | null>(null);
+  const lastTabIdRef = useRef<number>(-1);
 
   useEffect(() => {
     const port = chrome.runtime.connect({ name: "panel" });
@@ -19,6 +21,11 @@ export default function App() {
     const onMessage = (m: SWMessage) => {
       if (m.type === "ASSIST_START") {
         setActiveId(m.id);
+        lastTabIdRef.current = m.tabId;
+        // Get the tab URL to populate the filename badge
+        chrome.tabs.get(m.tabId).then(tab => {
+          if (tab.url) setFilename(extractFilename(tab.url) ?? undefined);
+        }).catch(() => {});
         // Append user bubble + assistant bubble
         setMessages((prev) => [
           ...prev,
@@ -68,6 +75,7 @@ export default function App() {
 
     port.onMessage.addListener(onMessage);
     return () => {
+      port.onMessage.removeListener(onMessage);
       port.disconnect();
     };
   }, []);
@@ -114,9 +122,9 @@ export default function App() {
     setFilename(undefined);
     setLanguage(undefined);
     // Send CLEAR_HISTORY to whichever active tab we last knew about
-    const lastMsg = [...messages].reverse().find((m) => m.tabId !== undefined && m.tabId >= 0);
-    if (lastMsg?.tabId !== undefined && lastMsg.tabId >= 0) {
-      chrome.runtime.sendMessage({ type: "CLEAR_HISTORY", tabId: lastMsg.tabId }).catch(() => {});
+    const tabId = lastTabIdRef.current;
+    if (tabId >= 0) {
+      chrome.runtime.sendMessage({ type: "CLEAR_HISTORY", tabId }).catch(() => {});
     }
   };
 
@@ -142,7 +150,7 @@ export default function App() {
             type: "PALETTE_FIRE",
             action,
             freeText,
-          }).catch(() => {});
+          } satisfies PaletteFire).catch(() => {});
         }
       });
     }

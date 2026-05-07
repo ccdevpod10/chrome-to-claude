@@ -45,9 +45,15 @@ export default function MessageThread({
   onStop,
 }: MessageThreadProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
+  const lastIdRef = useRef<string>("");
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    const last = messages[messages.length - 1];
+    if (!last) return;
+    if (last.id !== lastIdRef.current) {
+      lastIdRef.current = last.id;
+      bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    }
   }, [messages]);
 
   if (!messages.length) {
