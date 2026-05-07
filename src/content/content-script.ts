@@ -101,7 +101,10 @@ chrome.runtime.onMessage.addListener((msg: TriggerTooltip | ReplaceRequest | Pal
   if (msg.type === "TRIGGER_TOOLTIP") {
     refresh().then(() => { if (active) runAction("review"); });
   } else if (msg.type === "REPLACE_SELECTION") {
-    if (active) Promise.resolve(active.adapter.replaceSelection(active.info, msg.text));
+    if (active) {
+      Promise.resolve(active.adapter.replaceSelection(active.info, msg.text))
+        .catch((e) => console.warn("[ai-assist] replaceSelection failed", e));
+    }
   } else if (msg.type === "PALETTE_FIRE") {
     (async () => {
       const sel = active ?? await detect();
@@ -132,11 +135,7 @@ async function runAction(action: Action, selection?: DetectedSelection, freeText
   }
 
   // Open the side panel so results are visible (best-effort).
-  try {
-    await chrome.sidePanel.open({ windowId: chrome.windows.WINDOW_ID_CURRENT });
-  } catch {
-    // Falls back gracefully if no window ID is available or API is unavailable.
-  }
+  chrome.runtime.sendMessage({ type: "OPEN_SIDE_PANEL" }).catch(() => {});
 
   const port = chrome.runtime.connect({ name: "assist" });
   const req: AssistRequest = {

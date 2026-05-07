@@ -60,5 +60,7 @@ export type SWMessage = AssistStart | AssistChunk | AssistDone | AssistError;
 
 export interface ReplaceRequest { type: "REPLACE_SELECTION"; text: string }
 export interface TriggerTooltip { type: "TRIGGER_TOOLTIP" }
+export interface OpenSidePanel { type: "OPEN_SIDE_PANEL" }
 export interface CancelRequest { type: "ASSIST_CANCEL"; id: string }
 export interface ClearHistory { type: "CLEAR_HISTORY"; tabId: number }
+export interface PaletteFire { type: "PALETTE_FIRE"; action: Action; freeText?: string }

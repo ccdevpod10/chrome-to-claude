@@ -52,3 +52,11 @@ body {
   background-size: 200% 100%;
   animation: shimmer 1.6s linear infinite;
 }
+
+/* Chat UI */
+.chat-thread { display: flex; flex-direction: column; gap: 12px; padding: 12px; }
+.chat-bubble-user { align-self: flex-end; max-width: 85%; background: var(--bg-elev-2); border: 1px solid var(--border); border-radius: 12px 12px 4px 12px; padding: 8px 12px; font-size: 12px; color: var(--text); }
+.chat-bubble-ai { align-self: flex-start; width: 100%; }
+.chat-bubble-ai .code-wrapper { position: relative; border-radius: 10px; overflow: hidden; border: 1px solid var(--border); background: var(--bg-elev); }
+.chat-bubble-ai .code-actions { display: flex; gap: 6px; padding: 6px 8px; border-top: 1px solid var(--border); background: var(--bg-elev); }
+.file-context-badge { display: flex; align-items: center; gap: 6px; padding: 4px 12px; font-size: 11px; color: var(--text-dim); background: var(--bg-elev); border-bottom: 1px solid var(--border); }

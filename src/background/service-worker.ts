@@ -12,13 +12,16 @@ const panelPorts = new Set<chrome.runtime.Port>();
 const sessions = new Map<string, SWMessage[]>();
 const SESSION_TTL = 30 * 60 * 1000;
 
-chrome.runtime.onMessage.addListener((msg) => {
+chrome.runtime.onMessage.addListener((msg, sender) => {
   if (msg?.type === "ASSIST_CANCEL" && typeof msg.id === "string") {
     const ac = inflight.get(msg.id);
     if (ac) ac.abort();
   }
   if (msg?.type === "CLEAR_HISTORY" && typeof msg.tabId === "number") {
     void clearHistory(msg.tabId);
+  }
+  if (msg?.type === "OPEN_SIDE_PANEL" && sender.tab?.id !== undefined) {
+    void chrome.sidePanel.open({ tabId: sender.tab.id }).catch((e) => log.warn(e));
   }
 });
 
