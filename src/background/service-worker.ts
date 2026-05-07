@@ -4,6 +4,7 @@ import { getSettings, type Settings } from "../utils/storage";
 import { withRetry } from "../utils/retry";
 import { log } from "../utils/logger";
 import type { AssistRequest, SWMessage } from "../core/messages";
+import { getHistory, appendMessage, clearHistory, getLastN } from "../core/conversation-store";
 
 const inflight = new Map<string, AbortController>();
 const panelPorts = new Set<chrome.runtime.Port>();
@@ -15,6 +16,9 @@ chrome.runtime.onMessage.addListener((msg) => {
   if (msg?.type === "ASSIST_CANCEL" && typeof msg.id === "string") {
     const ac = inflight.get(msg.id);
     if (ac) ac.abort();
+  }
+  if (msg?.type === "CLEAR_HISTORY" && typeof msg.tabId === "number") {
+    void clearHistory(msg.tabId);
   }
 });
 
@@ -34,9 +38,9 @@ chrome.runtime.onConnect.addListener((port) => {
     if (msg?.type !== "ASSIST_REQUEST") return;
     const ac = new AbortController();
     inflight.set(msg.id, ac);
+    const tabId = port.sender?.tab?.id ?? msg.tabId;
 
     try {
-      const tabId = port.sender?.tab?.id ?? msg.tabId;
       // No auto-open of side panel: the in-page popup (content script) listens on
       // the "panel" port and is already connected before this request fires.
       broadcast({ type: "ASSIST_START", id: msg.id, original: msg.code, action: msg.action, tabId: tabId ?? -1 });
@@ -54,7 +58,8 @@ chrome.runtime.onConnect.addListener((port) => {
         throw new Error(`Missing API key for ${provider.label}. Open Settings to configure.`);
       }
 
-      const { system, user } = buildPrompt(msg.action, msg.code, { lang: msg.language, ctxBefore: msg.contextBefore, ctxAfter: msg.contextAfter, diagnostics: msg.diagnostics, history: msg.history, fileContext: msg.fileContext, freeText: msg.freeText });
+      const tabHistory = tabId != null ? await getHistory(tabId) : [];
+      const { system, user } = buildPrompt(msg.action, msg.code, { lang: msg.language, ctxBefore: msg.contextBefore, ctxAfter: msg.contextAfter, diagnostics: msg.diagnostics, history: getLastN(tabHistory), fileContext: msg.fileContext, freeText: msg.freeText });
 
       let watchdog: number | undefined;
       const bumpWatchdog = () => {
@@ -80,6 +85,10 @@ chrome.runtime.onConnect.addListener((port) => {
         { retries: 2 },
       ).finally(() => { if (watchdog !== undefined) clearTimeout(watchdog); });
 
+      if (tabId != null) {
+        void appendMessage(tabId, { role: "user", content: msg.freeText ?? msg.code });
+        void appendMessage(tabId, { role: "assistant", content: full });
+      }
       broadcast({ type: "ASSIST_DONE", id: msg.id, full });
     } catch (err: unknown) {
       const e = err as { name?: string; message?: string };
@@ -102,7 +111,8 @@ chrome.runtime.onConnect.addListener((port) => {
               model: settings.models[fb.id] ?? "",
               baseUrl: settings.baseUrls?.[fb.id],
             };
-            const { system, user } = buildPrompt(msg.action, msg.code, { lang: msg.language, ctxBefore: msg.contextBefore, ctxAfter: msg.contextAfter, diagnostics: msg.diagnostics, history: msg.history, fileContext: msg.fileContext, freeText: msg.freeText });
+            const fbTabHistory = tabId != null ? await getHistory(tabId) : [];
+            const { system, user } = buildPrompt(msg.action, msg.code, { lang: msg.language, ctxBefore: msg.contextBefore, ctxAfter: msg.contextAfter, diagnostics: msg.diagnostics, history: getLastN(fbTabHistory), fileContext: msg.fileContext, freeText: msg.freeText });
             const full = await fb.generate(
               {
                 system, user, signal: ac.signal,
@@ -110,6 +120,10 @@ chrome.runtime.onConnect.addListener((port) => {
               },
               cfg,
             );
+            if (tabId != null) {
+              void appendMessage(tabId, { role: "user", content: msg.freeText ?? msg.code });
+              void appendMessage(tabId, { role: "assistant", content: full });
+            }
             broadcast({ type: "ASSIST_DONE", id: msg.id, full });
             return;
           } catch (e2: unknown) {
