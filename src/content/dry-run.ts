@@ -1,10 +1,7 @@
 // Static + sandboxed dry-run for JS/jQuery snippets.
 // Returns diagnostics that get fed to the LLM debug prompt for grounded suggestions.
 
-export interface Diagnostic {
-  level: "error" | "warn" | "info";
-  message: string;
-}
+import type { Diagnostic } from "../core/messages";
 
 const JS_LANGS = /^(js|javascript|jsx|node|jquery|ts|typescript|tsx)$/i;
 

@@ -19,7 +19,7 @@ export default function FollowUpInput({ disabled, onSubmit }: FollowUpInputProps
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && value.trim()) {
-      onSubmit("explain", value.trim());
+      onSubmit("generate", value.trim());
       setValue("");
     }
   };

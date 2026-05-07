@@ -126,9 +126,11 @@ async function handleAssist(msg: AssistRequest): Promise<void> {
             baseUrl: settings.baseUrls?.[fb.id],
           };
           const { system, user } = buildPrompt(msg.action, msg.code, { lang: msg.language, ctxBefore: msg.contextBefore, ctxAfter: msg.contextAfter, diagnostics: msg.diagnostics, history: getLastN(tabHistory), fileContext: msg.fileContext, freeText: msg.freeText });
+          const fallbackAc = new AbortController();
+          inflight.set(msg.id, fallbackAc);
           const full = await fb.generate(
             {
-              system, user, signal: ac.signal,
+              system, user, signal: fallbackAc.signal,
               onChunk: (delta) => broadcast({ type: "ASSIST_CHUNK", id: msg.id, delta }),
             },
             cfg,
@@ -162,15 +164,21 @@ chrome.runtime.onConnect.addListener((port) => {
   }
   if (port.name !== "assist") return;
 
+  // Track IDs belonging to this port so disconnect only aborts its own requests
+  const portRequestIds = new Set<string>();
+
   port.onMessage.addListener(async (msg: AssistRequest) => {
     if (msg?.type !== "ASSIST_REQUEST") return;
+    portRequestIds.add(msg.id);
     const tabId = port.sender?.tab?.id ?? msg.tabId;
     await handleAssist({ ...msg, tabId });
   });
 
   port.onDisconnect.addListener(() => {
-    for (const ac of inflight.values()) ac.abort();
-    inflight.clear();
+    for (const id of portRequestIds) {
+      inflight.get(id)?.abort();
+      inflight.delete(id);
+    }
   });
 });
 
