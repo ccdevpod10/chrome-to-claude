@@ -30,3 +30,18 @@ export async function setSettings(patch: Partial<Settings>): Promise<void> {
   const cur = await getSettings();
   await chrome.storage.local.set({ settings: { ...cur, ...patch } });
 }
+
+// ---------------------------------------------------------------------------
+// chrome.storage.session helpers (tab-scoped ephemeral state)
+// ---------------------------------------------------------------------------
+
+export async function getSession<T>(key: string): Promise<T | undefined> {
+  if (!chrome.storage.session) return undefined;
+  const r = await chrome.storage.session.get(key);
+  return r[key] as T | undefined;
+}
+
+export async function setSession<T>(key: string, value: T): Promise<void> {
+  if (!chrome.storage.session) return;
+  await chrome.storage.session.set({ [key]: value });
+}

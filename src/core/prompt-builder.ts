@@ -90,11 +90,50 @@ function formatDiagnostics(diagnostics?: Diagnostic[]): string {
 
 const DEBUG_ACTIONS = new Set<Action>(["debug", "debug-error", "trace"]);
 
+// ---------------------------------------------------------------------------
+// Token budget enforcement
+// ---------------------------------------------------------------------------
+
+const MAX_CONTEXT_CHARS = 12_000; // ~3000 tokens at 1 token ≈ 4 chars
+
+/**
+ * Trim linesBefore and linesAfter symmetrically so their combined character
+ * count does not exceed MAX_CONTEXT_CHARS. Lines are removed from the outer
+ * edges (furthest from the selection) until within budget.
+ */
+function applyTokenBudget(fc: FileContext): FileContext {
+  let before = fc.linesBefore ?? "";
+  let after = fc.linesAfter ?? "";
+
+  if (before.length + after.length <= MAX_CONTEXT_CHARS) return fc;
+
+  // Split into line arrays so we trim whole lines, not mid-line.
+  let beforeLines = before.split("\n");
+  let afterLines = after.split("\n");
+
+  while (
+    beforeLines.join("\n").length + afterLines.join("\n").length > MAX_CONTEXT_CHARS &&
+    (beforeLines.length > 0 || afterLines.length > 0)
+  ) {
+    // Remove from the outer edge of whichever side is currently longer.
+    if (beforeLines.length >= afterLines.length && beforeLines.length > 0) {
+      beforeLines = beforeLines.slice(1); // drop oldest (furthest from selection)
+    } else if (afterLines.length > 0) {
+      afterLines = afterLines.slice(0, -1); // drop newest (furthest from selection)
+    } else {
+      break;
+    }
+  }
+
+  return { ...fc, linesBefore: beforeLines.join("\n"), linesAfter: afterLines.join("\n") };
+}
+
 function formatFileContext(fc: FileContext): string {
+  const trimmed = applyTokenBudget(fc);
   const parts: string[] = ["\n\n--- File Context (read-only) ---"];
-  if (fc.filename) parts.push(`File: ${fc.filename}`);
-  if (fc.linesBefore) parts.push(`--- Lines before selection ---\n${fc.linesBefore}`);
-  if (fc.linesAfter) parts.push(`--- Lines after selection ---\n${fc.linesAfter}`);
+  if (trimmed.filename) parts.push(`File: ${trimmed.filename}`);
+  if (trimmed.linesBefore) parts.push(`--- Lines before selection ---\n${trimmed.linesBefore}`);
+  if (trimmed.linesAfter) parts.push(`--- Lines after selection ---\n${trimmed.linesAfter}`);
   parts.push("--- End File Context ---");
   return parts.join("\n");
 }

@@ -8,6 +8,23 @@ import { getHistory, appendMessage, clearHistory, getLastN } from "../core/conve
 
 const inflight = new Map<string, AbortController>();
 const panelPorts = new Set<chrome.runtime.Port>();
+
+// ---------------------------------------------------------------------------
+// Per-tab rate limiting: max 10 requests per minute
+// ---------------------------------------------------------------------------
+const tabRequestLog = new Map<number, number[]>();
+
+function isRateLimited(tabId: number): boolean {
+  const now = Date.now();
+  const window = 60_000;
+  const log = tabRequestLog.get(tabId) ?? [];
+  const recent = log.filter(t => now - t < window);
+  tabRequestLog.set(tabId, recent);
+  if (recent.length >= 10) return true;
+  recent.push(now);
+  tabRequestLog.set(tabId, recent);
+  return false;
+}
 // Replay buffer keyed by request id so a late-connecting panel sees the full session.
 const sessions = new Map<string, SWMessage[]>();
 const SESSION_TTL = 30 * 60 * 1000;
@@ -29,6 +46,13 @@ async function handleAssist(msg: AssistRequest): Promise<void> {
   const ac = new AbortController();
   inflight.set(msg.id, ac);
   const tabId = msg.tabId;
+
+  // Rate limit check — must happen before any async work.
+  if (tabId !== undefined && isRateLimited(tabId)) {
+    broadcast({ type: "ASSIST_ERROR", id: msg.id, error: "Rate limit: max 10 requests per minute per tab" });
+    inflight.delete(msg.id);
+    return;
+  }
 
   let tabHistory: ConversationMessage[] = [];
 
