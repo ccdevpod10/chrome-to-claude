@@ -8,6 +8,22 @@ type HistoryMap = Record<string, ConversationMessage[]>;
 // In-memory fallback for environments where chrome.storage.session is unavailable.
 const memoryFallback = new Map<number, ConversationMessage[]>();
 
+// Per-tabId write serialization queue to prevent race conditions in appendMessage.
+const writeQueues = new Map<number, Promise<void>>();
+
+function enqueueWrite(tabId: number, fn: () => Promise<void>): Promise<void> {
+  const prev = writeQueues.get(tabId) ?? Promise.resolve();
+  const next = prev.then(fn).catch(() => {
+    // Swallow errors in queue to keep chain alive
+  });
+  writeQueues.set(tabId, next);
+  // Cleanup: clear queue ref after settle to avoid memory leak
+  next.finally(() => {
+    if (writeQueues.get(tabId) === next) writeQueues.delete(tabId);
+  });
+  return next;
+}
+
 function hasSessionStorage(): boolean {
   return typeof chrome !== "undefined" &&
     typeof chrome.storage !== "undefined" &&
@@ -45,15 +61,19 @@ export async function appendMessage(tabId: number, msg: ConversationMessage): Pr
     memoryFallback.set(tabId, current);
     return;
   }
-  const map = await readMap();
-  const key = String(tabId);
-  const current = map[key] ?? [];
-  current.push(msg);
-  if (current.length > MAX_MESSAGES) {
-    current.splice(0, current.length - MAX_MESSAGES);
-  }
-  map[key] = current;
-  await writeMap(map);
+
+  // Serialize writes per tab to prevent race condition in read-modify-write
+  return enqueueWrite(tabId, async () => {
+    const map = await readMap();
+    const key = String(tabId);
+    const current = map[key] ?? [];
+    current.push(msg);
+    if (current.length > MAX_MESSAGES) {
+      current.splice(0, current.length - MAX_MESSAGES);
+    }
+    map[key] = current;
+    await writeMap(map);
+  });
 }
 
 /** Clear all conversation history for a tab. */
@@ -62,9 +82,13 @@ export async function clearHistory(tabId: number): Promise<void> {
     memoryFallback.delete(tabId);
     return;
   }
-  const map = await readMap();
-  delete map[String(tabId)];
-  await writeMap(map);
+
+  // Serialize writes per tab to prevent race condition
+  return enqueueWrite(tabId, async () => {
+    const map = await readMap();
+    delete map[String(tabId)];
+    await writeMap(map);
+  });
 }
 
 /**
