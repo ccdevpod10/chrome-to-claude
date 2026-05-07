@@ -3,7 +3,7 @@ import { buildPrompt } from "../core/prompt-builder";
 import { getSettings, type Settings } from "../utils/storage";
 import { withRetry } from "../utils/retry";
 import { log } from "../utils/logger";
-import type { AssistRequest, ConversationMessage, SWMessage } from "../core/messages";
+import type { Action, AssistRequest, ConversationMessage, SWMessage } from "../core/messages";
 import { getHistory, appendMessage, clearHistory, getLastN } from "../core/conversation-store";
 
 const inflight = new Map<string, AbortController>();
@@ -202,7 +202,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   });
 });
 
-const CONTEXT_MENU_ACTION_MAP: Record<string, string> = {
+const CONTEXT_MENU_ACTION_MAP: Record<string, Action> = {
   "ai-review":  "review",
   "ai-debug":   "debug-error",
   "ai-explain": "explain",
@@ -223,7 +223,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   const req: AssistRequest = {
     type: "ASSIST_REQUEST",
     id: crypto.randomUUID(),
-    action: action as AssistRequest["action"],
+    action: action,
     code: selectionText,
     url: tab?.url ?? "",
     tabId,
