@@ -1,11 +1,10 @@
 import { detect, DetectedSelection } from "./selection-detector";
 import { createTooltip } from "./tooltip";
-import { createResultPopup } from "./result-popup";
 import { createSettingsModal } from "./settings-modal";
 import { createCommandPalette } from "./command-palette";
 import { getShell } from "./ui-shell";
 import { dryRunJs, isJsLanguage, looksLikeJs } from "./dry-run";
-import type { Action, AssistRequest, Diagnostic, ReplaceRequest, SWMessage, TriggerTooltip } from "../core/messages";
+import type { Action, AssistRequest, Diagnostic, PaletteFire, ReplaceRequest, SWMessage, TriggerTooltip } from "../core/messages";
 
 getShell();
 const tooltip = createTooltip();
@@ -17,16 +16,6 @@ const palette = createCommandPalette((req) => {
   ensurePanelPort();
   const id = crypto.randomUUID();
 
-  // Show the result popup before the port is connected so progress is visible.
-  popup.start(id, req.action, req.code ?? "");
-  // Position the popup at the center of the viewport when fired from the palette.
-  const vpRect = new DOMRect(
-    window.innerWidth / 2 - 260,
-    window.innerHeight / 4,
-    520,
-    0,
-  );
-  popup.showAt(vpRect);
   tooltip.hide();
 
   // Open the side panel (best-effort — may require user gesture in some Chrome versions).
@@ -45,19 +34,9 @@ const palette = createCommandPalette((req) => {
   port.postMessage(assistReq);
   setTimeout(() => { try { port.disconnect(); } catch { /* noop */ } }, 5 * 60 * 1000);
 });
-const popup = createResultPopup({
-  onReplace: (text) => {
-    if (active) Promise.resolve(active.adapter.replaceSelection(active.info, text));
-  },
-  onRetry: () => { if (active) runAction("improve"); },
-  onStop: (id) => chrome.runtime.sendMessage({ type: "ASSIST_CANCEL", id }).catch(() => {}),
-  onClose: () => { active = null; },
-  onSettings: () => settings.open(),
-});
 const settings = createSettingsModal();
 
 let active: DetectedSelection | null = null;
-let lastAnchorRect: DOMRect | null = null;
 let debounceId = 0;
 let inflight = 0;
 
@@ -66,13 +45,14 @@ let panelPort: chrome.runtime.Port | null = null;
 function ensurePanelPort() {
   if (panelPort) return;
   panelPort = chrome.runtime.connect({ name: "panel" });
-  panelPort.onMessage.addListener((m: SWMessage) => popup.ingest(m));
+  panelPort.onMessage.addListener((_m: SWMessage) => {
+    // The React side panel handles its own port; nothing to do here.
+  });
   panelPort.onDisconnect.addListener(() => { panelPort = null; });
 }
 ensurePanelPort();
 
 async function refresh() {
-  if (popup.isOpen()) return; // don't pop tooltip while result is showing
   const seq = ++inflight;
   const ctx = await detect();
   if (seq !== inflight) return;
@@ -82,8 +62,7 @@ async function refresh() {
     return;
   }
   active = ctx;
-  lastAnchorRect = ctx.info.rect;
-  tooltip.show(ctx.info.rect, runAction, () => settings.open());
+  tooltip.show(ctx.info.rect, runAction, () => palette.open(active), () => settings.open());
 }
 
 function scheduleRefresh() {
@@ -118,37 +97,45 @@ document.addEventListener("keydown", async (e) => {
   }
 }, true);
 
-chrome.runtime.onMessage.addListener((msg: TriggerTooltip | ReplaceRequest) => {
+chrome.runtime.onMessage.addListener((msg: TriggerTooltip | ReplaceRequest | PaletteFire) => {
   if (msg.type === "TRIGGER_TOOLTIP") {
-    refresh().then(() => { if (active) runAction("improve"); });
+    refresh().then(() => { if (active) runAction("review"); });
   } else if (msg.type === "REPLACE_SELECTION") {
     if (active) Promise.resolve(active.adapter.replaceSelection(active.info, msg.text));
+  } else if (msg.type === "PALETTE_FIRE") {
+    (async () => {
+      const sel = active ?? await detect();
+      runAction(msg.action, sel ?? undefined, msg.freeText);
+    })();
   }
 });
 
-async function runAction(action: Action) {
-  if (!active) return;
+async function runAction(action: Action, selection?: DetectedSelection, freeText?: string) {
+  const ctx = selection ?? active;
+  if (!ctx) return;
   ensurePanelPort();
   const id = crypto.randomUUID();
-  const code = active.info.text;
-  const language = active.info.language;
+  const code = ctx.info.text;
+  const language = ctx.info.language;
 
-  popup.start(id, action, code);
-  popup.showAt(lastAnchorRect ?? active.info.rect);
   tooltip.hide();
 
   // For "debug" on JS/jQuery, run a sandboxed dry-run first so the LLM
   // gets grounded findings instead of guessing.
   let diagnostics: Diagnostic[] | undefined;
   if (action === "debug" && (isJsLanguage(language) || looksLikeJs(code))) {
-    popup.setBusyMessage("Running dry-run test on the snippet…");
     try {
       diagnostics = await dryRunJs(code);
     } catch (e) {
       diagnostics = [{ level: "warn", message: `Dry-run failed: ${(e as Error).message}` }];
     }
-    popup.setBusyMessage(null);
-    popup.setDiagnostics(diagnostics ?? null);
+  }
+
+  // Open the side panel so results are visible (best-effort).
+  try {
+    await chrome.sidePanel.open({ windowId: chrome.windows.WINDOW_ID_CURRENT });
+  } catch {
+    // Falls back gracefully if no window ID is available or API is unavailable.
   }
 
   const port = chrome.runtime.connect({ name: "assist" });
@@ -160,6 +147,7 @@ async function runAction(action: Action) {
     language,
     url: location.href,
     diagnostics,
+    freeText,
   };
   port.postMessage(req);
   setTimeout(() => { try { port.disconnect(); } catch { /* noop */ } }, 5 * 60 * 1000);

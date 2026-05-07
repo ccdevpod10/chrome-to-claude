@@ -1,10 +1,10 @@
 import type { Action } from "../core/messages";
 import { getShell, ICONS } from "./ui-shell";
 
-const ACTIONS: Action[] = ["fix", "improve", "audit", "debug"];
+const ACTIONS: Action[] = ["review", "fix", "debug"];
 
 export interface TooltipApi {
-  show(rect: DOMRect, onPick: (a: Action) => void, onSettings: () => void): void;
+  show(rect: DOMRect, onPick: (a: Action) => void, onMore: () => void, onSettings: () => void): void;
   hide(): void;
   destroy(): void;
 }
@@ -20,7 +20,7 @@ export function createTooltip(): TooltipApi {
   }
 
   return {
-    show(rect, onPick, onSettings) {
+    show(rect, onPick, onMore, onSettings) {
       node!.innerHTML = "";
       const brand = document.createElement("span");
       brand.className = "brand";
@@ -37,6 +37,12 @@ export function createTooltip(): TooltipApi {
         b.addEventListener("click", () => onPick(a));
         node!.appendChild(b);
       }
+
+      const moreBtn = document.createElement("button");
+      moreBtn.textContent = "More…";
+      moreBtn.addEventListener("mousedown", (e) => e.preventDefault());
+      moreBtn.addEventListener("click", onMore);
+      node!.appendChild(moreBtn);
 
       const sep2 = document.createElement("span"); sep2.className = "sep"; node!.appendChild(sep2);
 
