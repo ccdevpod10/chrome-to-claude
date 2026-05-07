@@ -1,12 +1,7 @@
+import type { FileContext } from "./messages";
+
 /** Result of collecting file context around a selection. */
-export interface CollectedContext {
-  /** Up to 60 lines of file content immediately before the selection */
-  linesBefore: string;
-  /** Up to 60 lines of file content immediately after the selection */
-  linesAfter: string;
-  /** Human-readable filename derived from URL or page title */
-  filename?: string;
-}
+export type CollectedContext = FileContext;
 
 /** Maximum lines to collect on each side of the selection. */
 const MAX_LINES_EACH_SIDE = 60;
@@ -24,13 +19,19 @@ const MAX_CONTEXT_CHARS = 12_000;
  * If the combined context exceeds ~3000 estimated tokens (12 000 chars),
  * both sides are trimmed proportionally so the total stays within budget.
  */
-export function collectFileContext(fileContent: string, selectedText: string): CollectedContext {
+export function collectFileContext(
+  fileContent: string,
+  selectedText: string,
+  selectionOffset?: number,  // character offset into fileContent where selection starts
+): CollectedContext {
   if (!fileContent || !selectedText) {
     return { linesBefore: "", linesAfter: "" };
   }
 
-  // Find the first occurrence of the selected text in the file.
-  const selectionStart = fileContent.indexOf(selectedText);
+  // Use provided offset directly; fall back to indexOf only when not provided.
+  const selectionStart = selectionOffset !== undefined
+    ? selectionOffset
+    : fileContent.indexOf(selectedText);
   if (selectionStart === -1) {
     // Selection not found in content — return empty context.
     return { linesBefore: "", linesAfter: "" };
@@ -51,9 +52,30 @@ export function collectFileContext(fileContent: string, selectedText: string): C
 }
 
 /**
+ * Trim a string to at most maxChars characters by dropping whole lines from
+ * the far end. When fromEnd is true, lines are dropped from the start (keeping
+ * lines nearest to the end / closest to the selection for "before" context).
+ * When fromEnd is false, lines are dropped from the end (keeping lines nearest
+ * to the start / closest to the selection for "after" context).
+ */
+function trimToChars(text: string, maxChars: number, fromEnd: boolean): string {
+  if (text.length <= maxChars) return text;
+  const lines = text.split("\n");
+  if (fromEnd) {
+    // keep the end (lines closest to selection — used for "before" context)
+    while (lines.join("\n").length > maxChars && lines.length > 0) lines.shift();
+  } else {
+    // keep the start (lines closest to selection — used for "after" context)
+    while (lines.join("\n").length > maxChars && lines.length > 0) lines.pop();
+  }
+  return lines.join("\n");
+}
+
+/**
  * Trim before/after strings so their combined length stays within MAX_CONTEXT_CHARS.
  * If both are within budget, they are returned unchanged.
  * If the total exceeds the budget, each side is reduced proportionally.
+ * Trimming is done on whole-line boundaries to avoid splitting mid-line.
  */
 function applyTokenBudget(
   before: string,
@@ -72,13 +94,9 @@ function applyTokenBudget(
   const afterBudget = Math.floor(MAX_CONTEXT_CHARS * afterShare);
 
   // Trim from the far end of before (keep lines closest to selection) and
-  // the far end of after (keep lines closest to selection).
-  const trimmedBefore = before.length > beforeBudget
-    ? before.slice(before.length - beforeBudget)
-    : before;
-  const trimmedAfter = after.length > afterBudget
-    ? after.slice(0, afterBudget)
-    : after;
+  // the far end of after (keep lines closest to selection), on whole-line boundaries.
+  const trimmedBefore = trimToChars(before, beforeBudget, true);
+  const trimmedAfter = trimToChars(after, afterBudget, false);
 
   return { trimmedBefore, trimmedAfter };
 }

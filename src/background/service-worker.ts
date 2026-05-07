@@ -54,7 +54,7 @@ chrome.runtime.onConnect.addListener((port) => {
         throw new Error(`Missing API key for ${provider.label}. Open Settings to configure.`);
       }
 
-      const { system, user } = buildPrompt(msg.action, msg.code, msg.language, msg.contextBefore, msg.contextAfter, msg.diagnostics);
+      const { system, user } = buildPrompt(msg.action, msg.code, { lang: msg.language, ctxBefore: msg.contextBefore, ctxAfter: msg.contextAfter, diagnostics: msg.diagnostics, history: msg.history, fileContext: msg.fileContext, freeText: msg.freeText });
 
       let watchdog: number | undefined;
       const bumpWatchdog = () => {
@@ -102,7 +102,7 @@ chrome.runtime.onConnect.addListener((port) => {
               model: settings.models[fb.id] ?? "",
               baseUrl: settings.baseUrls?.[fb.id],
             };
-            const { system, user } = buildPrompt(msg.action, msg.code, msg.language, msg.contextBefore, msg.contextAfter, msg.diagnostics);
+            const { system, user } = buildPrompt(msg.action, msg.code, { lang: msg.language, ctxBefore: msg.contextBefore, ctxAfter: msg.contextAfter, diagnostics: msg.diagnostics, history: msg.history, fileContext: msg.fileContext, freeText: msg.freeText });
             const full = await fb.generate(
               {
                 system, user, signal: ac.signal,

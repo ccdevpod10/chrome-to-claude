@@ -26,7 +26,6 @@ const CODE_PRODUCING_ACTIONS = new Set<Action>([
   "debug",
   "generate",
   "write-tests",
-  "write-docs",
   "scaffold",
   "debug-error",
   "trace",
@@ -114,23 +113,28 @@ export interface BuiltPrompt {
   history?: ConversationMessage[];
 }
 
+export interface BuildPromptOptions {
+  lang?: string;
+  ctxBefore?: string;
+  ctxAfter?: string;
+  diagnostics?: Diagnostic[];
+  history?: ConversationMessage[];
+  fileContext?: FileContext;
+  freeText?: string;
+}
+
 /**
  * Build a prompt for the given action.
  *
- * All parameters beyond `action` and `code` are optional for backward compat —
- * existing callers that pass only the legacy 6-arg form continue to compile.
+ * All parameters beyond `action` and `code` are collected in an options object.
  */
 export function buildPrompt(
   action: Action,
   code: string,
-  lang?: string,
-  ctxBefore?: string,
-  ctxAfter?: string,
-  diagnostics?: Diagnostic[],
-  history?: ConversationMessage[],
-  fileContext?: FileContext,
-  freeText?: string,
+  opts: BuildPromptOptions = {},
 ): BuiltPrompt {
+  const { lang, ctxBefore, ctxAfter, diagnostics, history, fileContext, freeText } = opts;
+
   // When there is no code selection but free text is provided, use it as the
   // "code" payload so the template still renders something meaningful.
   const effectiveCode = (!code || code.trim() === "") && freeText ? freeText : code;
