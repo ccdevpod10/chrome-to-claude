@@ -124,18 +124,20 @@ export function createCommandPalette(
   }
 
   function fire(action?: Action) {
-    const freeText = input.value.trim() || undefined;
-    const resolvedAction: Action = action ?? (visibleItems()[activeIdx]?.dataset["action"] as Action) ?? "generate";
+    const freeText = input.value.trim();
+    const code = cachedSelection?.info.text ?? "";
+    const language = cachedSelection?.info.language;
 
-    let code = "";
-    let language: string | undefined;
-
-    if (cachedSelection) {
-      code = cachedSelection.info.text;
-      language = cachedSelection.info.language;
+    // Guard: need either freeText or a code selection
+    if (!freeText && !code) {
+      // Shake the input to indicate nothing to act on
+      input.style.outline = "2px solid #ef4444";
+      setTimeout(() => { input.style.outline = ""; }, 600);
+      return;
     }
 
-    onFire({ action: resolvedAction, code, language, freeText, url: location.href });
+    const resolvedAction: Action = action ?? (visibleItems()[activeIdx]?.dataset["action"] as Action) ?? "generate";
+    onFire({ action: resolvedAction, code, language, freeText: freeText || undefined, url: location.href });
     close();
   }
 
@@ -158,14 +160,11 @@ export function createCommandPalette(
         e.preventDefault();
         const visible = visibleItems();
         const selected = visible[activeIdx]?.dataset["action"] as Action | undefined;
-        const freeText = input.value.trim();
 
         if (selected) {
           fire(selected);
-        } else if (freeText) {
-          // Free-text with no matching action → default to "generate"
-          fire("generate");
         } else {
+          // Free-text only (or empty — fire() will guard against empty)
           fire("generate");
         }
         break;

@@ -100,14 +100,15 @@ document.addEventListener("scroll", () => tooltip.hide(), true);
 window.addEventListener("blur", () => tooltip.hide());
 
 // ⌘K / Ctrl+K — open the command palette
-document.addEventListener("keydown", (e) => {
+document.addEventListener("keydown", async (e) => {
   if ((e.metaKey || e.ctrlKey) && e.key === "k") {
     e.preventDefault();
     e.stopPropagation();
     if (palette.isOpen()) {
       palette.close();
     } else {
-      palette.open(active);
+      const selection = active ?? await detect();
+      palette.open(selection);
     }
   }
 }, true);
