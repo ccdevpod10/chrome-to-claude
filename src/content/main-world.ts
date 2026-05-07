@@ -3,10 +3,12 @@
 //   isolated → main:  CustomEvent("__ai_assist_req", { detail: { id, op, payload } })
 //   main → isolated:  CustomEvent("__ai_assist_res", { detail: { id, ok, data, error } })
 // Ops:
-//   "monaco.getSelection" payload: { rootSelector?: string }   → { text, language, rect, editorIndex }
-//   "monaco.replace"      payload: { editorIndex, text }       → { ok }
-//   "cm6.getSelection"    payload: { rootSelector?: string }   → { text, rect, from, to, viewIndex }
-//   "cm6.replace"         payload: { viewIndex, from, to, text } → { ok }
+//   "monaco.getSelection"    payload: { rootSelector?: string }   → { text, language, rect, editorIndex }
+//   "monaco.replace"         payload: { editorIndex, text }       → { ok }
+//   "monaco.getFileContent"  payload: {}                          → { content: string } | null
+//   "cm6.getSelection"       payload: { rootSelector?: string }   → { text, rect, from, to, viewIndex }
+//   "cm6.replace"            payload: { viewIndex, from, to, text } → { ok }
+//   "cm6.getFileContent"     payload: {}                          → { content: string } | null
 
 (() => {
   if ((window as unknown as { __aiAssistBridgeInstalled?: boolean }).__aiAssistBridgeInstalled) return;
