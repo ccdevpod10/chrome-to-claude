@@ -1,5 +1,5 @@
 // Legacy actions (kept for backward compatibility with existing callers)
-type LegacyAction = "fix" | "improve" | "audit" | "debug";
+type LegacyAction = "improve" | "audit" | "debug";
 
 // New action groups
 // Review group: inspect code without producing a rewrite

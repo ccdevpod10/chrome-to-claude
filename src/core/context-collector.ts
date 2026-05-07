@@ -102,8 +102,9 @@ export function extractFilename(url: string): string | undefined {
   const pathname = parsed.pathname;
 
   // GitHub / GitLab / Bitbucket: paths like /owner/repo/blob/branch/path/to/file.ext
-  // We look for the segment after /blob/ or /raw/ or /tree/.
-  const repoFileMatch = pathname.match(/\/(?:blob|raw|edit)\/[^/]+\/(.+)$/);
+  // GitLab also uses /-/blob/branch/path/to/file.ext
+  // We look for the segment after /blob/ or /raw/ or /edit/ or /-/blob/, etc.
+  const repoFileMatch = pathname.match(/\/(?:-\/)?(?:blob|raw|edit)\/[^/]+\/(.+)$/);
   if (repoFileMatch) {
     // The remainder is the file path inside the repo — take the last segment.
     const segments = repoFileMatch[1].split("/").filter(Boolean);

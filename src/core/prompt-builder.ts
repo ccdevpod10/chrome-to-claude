@@ -26,6 +26,7 @@ const CODE_PRODUCING_ACTIONS = new Set<Action>([
   "debug",
   "generate",
   "write-tests",
+  "write-docs",
   "scaffold",
   "debug-error",
   "trace",
