@@ -40,7 +40,7 @@ export const monacoAdapter: EditorAdapter = {
   },
 
   async getFileContent(_el) {
-    const data = await bridgeCall<{ content: string }>("monaco.getFileContent", {}, 500);
+    const data = await bridgeCall<{ content: string }>("monaco.getFileContent");
     return data?.content ?? null;
   },
 };

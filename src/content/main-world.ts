@@ -165,11 +165,16 @@
 
       if (op === "cm6.getFileContent") {
         const views = collectCM6Views();
-        for (const v of views) {
-          const content = v.state.doc.toString();
-          if (content) return send(id, true, { content });
-        }
-        return send(id, true, null);
+        const ae = document.activeElement;
+        // Prefer view containing the active element (user's working editor).
+        const focused = views.find(v => ae && v.dom.contains(ae));
+        if (focused) return send(id, true, { content: focused.state.doc.toString() });
+        // Fall back to largest non-empty document.
+        const largest = views
+          .map(v => v.state.doc.toString())
+          .filter(c => c.length > 0)
+          .sort((a, b) => b.length - a.length)[0];
+        return send(id, true, largest ? { content: largest } : null);
       }
 
       send(id, false, null, "unknown op: " + op);

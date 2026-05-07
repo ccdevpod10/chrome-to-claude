@@ -46,11 +46,14 @@ export const codemirrorAdapter: EditorAdapter = {
 
   async getFileContent(el) {
     if (el.closest(".cm-editor")) {
-      const data = await bridgeCall<{ content: string }>("cm6.getFileContent", {}, 500);
+      const data = await bridgeCall<{ content: string }>("cm6.getFileContent");
       return data?.content ?? null;
     }
-    // CM5: instance is attached directly on the DOM element
-    const cm5 = (el.closest(".CodeMirror") as unknown as { CodeMirror?: { getValue(): string } })?.CodeMirror;
-    return cm5?.getValue() ?? null;
+    // CM5 attaches the editor instance as `.CodeMirror` directly on the wrapper div.
+    const wrapper = el.closest(".CodeMirror");
+    const cm5 = wrapper
+      ? (wrapper as unknown as { CodeMirror?: { getValue(): string } }).CodeMirror
+      : undefined;
+    return Promise.resolve(cm5?.getValue() ?? null);
   },
 };
