@@ -2,12 +2,49 @@ import { detect, DetectedSelection } from "./selection-detector";
 import { createTooltip } from "./tooltip";
 import { createResultPopup } from "./result-popup";
 import { createSettingsModal } from "./settings-modal";
+import { createCommandPalette } from "./command-palette";
 import { getShell } from "./ui-shell";
 import { dryRunJs, isJsLanguage, looksLikeJs } from "./dry-run";
 import type { Action, AssistRequest, Diagnostic, ReplaceRequest, SWMessage, TriggerTooltip } from "../core/messages";
 
 getShell();
 const tooltip = createTooltip();
+
+// ---------------------------------------------------------------------------
+// Command palette (⌘K / Ctrl+K)
+// ---------------------------------------------------------------------------
+const palette = createCommandPalette((req) => {
+  ensurePanelPort();
+  const id = crypto.randomUUID();
+
+  // Show the result popup before the port is connected so progress is visible.
+  popup.start(id, req.action, req.code ?? "");
+  // Position the popup at the center of the viewport when fired from the palette.
+  const vpRect = new DOMRect(
+    window.innerWidth / 2 - 260,
+    window.innerHeight / 4,
+    520,
+    0,
+  );
+  popup.showAt(vpRect);
+  tooltip.hide();
+
+  // Open the side panel (best-effort — may require user gesture in some Chrome versions).
+  chrome.runtime.sendMessage({ type: "OPEN_SIDE_PANEL" }).catch(() => {});
+
+  const port = chrome.runtime.connect({ name: "assist" });
+  const assistReq: AssistRequest = {
+    type: "ASSIST_REQUEST",
+    id,
+    action: req.action,
+    code: req.code ?? "",
+    language: req.language,
+    freeText: req.freeText,
+    url: req.url,
+  };
+  port.postMessage(assistReq);
+  setTimeout(() => { try { port.disconnect(); } catch { /* noop */ } }, 5 * 60 * 1000);
+});
 const popup = createResultPopup({
   onReplace: (text) => {
     if (active) Promise.resolve(active.adapter.replaceSelection(active.info, text));
@@ -61,6 +98,19 @@ document.addEventListener("keyup", (e) => {
 }, true);
 document.addEventListener("scroll", () => tooltip.hide(), true);
 window.addEventListener("blur", () => tooltip.hide());
+
+// ⌘K / Ctrl+K — open the command palette
+document.addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+    e.preventDefault();
+    e.stopPropagation();
+    if (palette.isOpen()) {
+      palette.close();
+    } else {
+      palette.open(active);
+    }
+  }
+}, true);
 
 chrome.runtime.onMessage.addListener((msg: TriggerTooltip | ReplaceRequest) => {
   if (msg.type === "TRIGGER_TOOLTIP") {

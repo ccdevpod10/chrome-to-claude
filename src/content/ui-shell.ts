@@ -200,6 +200,50 @@ const STYLE = `
   .card .head .tag.ok{ background: rgba(16,185,129,.15); color:#6ee7b7; margin-left:auto; }
   .card .head .tag.off{ background: rgba(255,255,255,.06); color:#71717a; margin-left:auto; }
   .saved{ font-size:11px; color:#34d399; }
+
+  /* ===== Command palette ===== */
+  @keyframes palette-in { from { opacity:0; transform: translateY(-8px) scale(.97); } to { opacity:1; transform: none; } }
+  .palette-backdrop{
+    position:fixed; inset:0; background: rgba(0,0,0,.5);
+    backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+    pointer-events: auto;
+    display:grid; place-items: center start; align-content: start;
+    padding-top: min(12vh, 120px);
+    z-index: 1;
+  }
+  .palette{
+    width: 560px; max-width: calc(100vw - 32px);
+    background: rgba(10,10,11,.97);
+    border:1px solid rgba(255,255,255,.1); border-radius:12px;
+    box-shadow: 0 24px 64px rgba(0,0,0,.65), 0 0 0 1px rgba(0,0,0,.4);
+    overflow: hidden;
+    animation: palette-in 150ms ease-out;
+    justify-self: center;
+  }
+  .palette-input{
+    display:block; width:100%; padding: 14px 16px;
+    background: transparent; border:0; outline:none;
+    color:#ededf0; font: 500 16px/1.4 ui-sans-serif,-apple-system,"SF Pro Text","Inter",system-ui,Segoe UI,Roboto;
+    caret-color: #6366f1;
+  }
+  .palette-input::placeholder{ color:#52525b; }
+  .palette-divider{ height:1px; background: rgba(255,255,255,.07); margin: 0; }
+  .palette-list{
+    overflow-y: auto; max-height: 320px;
+    padding: 4px 0;
+  }
+  .palette-item{
+    display:flex; align-items:center; padding: 10px 16px;
+    cursor:pointer; font-size:13px; color:#d4d4d8;
+    transition: background-color 80ms;
+    border-left: 2px solid transparent;
+  }
+  .palette-item:hover{ background: rgba(255,255,255,.04); color:#fff; }
+  .palette-item.active{
+    background: rgba(99,102,241,.18); color:#e0e7ff;
+    border-left-color: #6366f1;
+  }
+  .palette-item[data-hidden]{ display:none; }
 `;
 
 interface Shell {
