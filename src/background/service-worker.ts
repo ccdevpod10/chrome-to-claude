@@ -17,8 +17,8 @@ const tabRequestLog = new Map<number, number[]>();
 function isRateLimited(tabId: number): boolean {
   const now = Date.now();
   const window = 60_000;
-  const log = tabRequestLog.get(tabId) ?? [];
-  const recent = log.filter(t => now - t < window);
+  const timestamps = tabRequestLog.get(tabId) ?? [];
+  const recent = timestamps.filter(t => now - t < window);
   tabRequestLog.set(tabId, recent);
   if (recent.length >= 10) return true;
   recent.push(now);
@@ -205,6 +205,10 @@ function broadcast(m: SWMessage) {
     try { p.postMessage(m); } catch { /* port closed */ }
   }
 }
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  tabRequestLog.delete(tabId);
+});
 
 chrome.commands.onCommand.addListener(async (cmd) => {
   if (cmd !== "trigger-assist") return;
