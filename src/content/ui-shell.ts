@@ -166,7 +166,7 @@ const STYLE = `
   .overlay{
     position:fixed; inset:0; background: rgba(0,0,0,.55); backdrop-filter: blur(2px);
     pointer-events: auto; display:grid; place-items:center; padding: 24px;
-    animation: ovIn 120ms ease-out;
+    animation: ovIn 120ms ease-out; z-index: 2;
   }
   .modal{
     width: 560px; max-width:100%; max-height: 80vh; display:flex; flex-direction:column;

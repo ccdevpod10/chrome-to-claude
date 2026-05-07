@@ -101,15 +101,20 @@ window.addEventListener("blur", () => tooltip.hide());
 
 // ⌘K / Ctrl+K — open the command palette
 document.addEventListener("keydown", async (e) => {
-  if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+  if (!((e.metaKey || e.ctrlKey) && e.key === "k")) return;
+  try {
+    if (palette.isOpen()) {
+      e.preventDefault();
+      e.stopPropagation();
+      palette.close();
+      return;
+    }
+    const selection = active ?? await detect();
     e.preventDefault();
     e.stopPropagation();
-    if (palette.isOpen()) {
-      palette.close();
-    } else {
-      const selection = active ?? await detect();
-      palette.open(selection);
-    }
+    palette.open(selection);
+  } catch {
+    // If palette setup failed, let the event propagate normally
   }
 }, true);
 

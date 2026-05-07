@@ -150,14 +150,20 @@ export function createCommandPalette(
     switch (e.key) {
       case "ArrowDown":
         e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
         setActive(activeIdx + 1);
         break;
       case "ArrowUp":
         e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
         setActive(activeIdx - 1);
         break;
       case "Enter": {
         e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
         const visible = visibleItems();
         const selected = visible[activeIdx]?.dataset["action"] as Action | undefined;
 
@@ -171,6 +177,8 @@ export function createCommandPalette(
       }
       case "Escape":
         e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
         close();
         break;
     }
