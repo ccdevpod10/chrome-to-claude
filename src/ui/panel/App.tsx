@@ -1,148 +1,207 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { extractCode } from "../../core/prompt-builder";
-import type { SWMessage, Action } from "../../core/messages";
-import DiffView from "./DiffView";
-import CodeBlock from "./CodeBlock";
-import Notes from "./Notes";
-import {
-  IconCheck, IconCog, IconCopy, IconReplace, IconRetry, IconSparkle, IconStop,
-} from "./Icons";
-
-type Status = "idle" | "streaming" | "done" | "error";
-type Tab = "output" | "diff" | "original";
-
-interface SessionState {
-  id: string;
-  action: Action;
-  original: string;
-  streamed: string;
-  status: Status;
-  error?: string;
-  tabId: number;
-}
-
-const EMPTY: SessionState = {
-  id: "", action: "improve", original: "", streamed: "", status: "idle", tabId: -1,
-};
-
-const ACTION_LABEL: Record<Action, string> = {
-  fix: "Fix", improve: "Improve", audit: "Audit", debug: "Debug",
-  review: "Review", explain: "Explain", "find-bugs": "Find Bugs",
-  generate: "Generate", "write-tests": "Write Tests", "write-docs": "Write Docs", scaffold: "Scaffold",
-  "debug-error": "Debug Error", trace: "Trace",
-};
+import { useEffect, useRef, useState } from "react";
+import type { SWMessage, Action, PaletteFire } from "../../core/messages";
+import MessageThread, { ChatMessage } from "./MessageThread";
+import FollowUpInput from "./FollowUpInput";
+import { IconCog, IconSparkle } from "./Icons";
 
 export default function App() {
-  const [s, setS] = useState<SessionState>(EMPTY);
-  const [tab, setTab] = useState<Tab>("output");
-  const [copied, setCopied] = useState(false);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [copied, setCopied] = useState<Record<string, boolean>>({});
+  const [filename, setFilename] = useState<string | undefined>(undefined);
+  const [language, setLanguage] = useState<string | undefined>(undefined);
   const portRef = useRef<chrome.runtime.Port | null>(null);
 
   useEffect(() => {
     const port = chrome.runtime.connect({ name: "panel" });
     portRef.current = port;
+
     const onMessage = (m: SWMessage) => {
       if (m.type === "ASSIST_START") {
-        setS({ id: m.id, action: m.action, original: m.original, streamed: "", status: "streaming", tabId: m.tabId });
-        setTab("output");
+        setActiveId(m.id);
+        // Append user bubble + assistant bubble
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `user-${m.id}`,
+            role: "user",
+            action: m.action,
+            prompt: undefined,
+            tabId: m.tabId,
+            original: m.original,
+          },
+          {
+            id: m.id,
+            role: "assistant",
+            streamed: "",
+            status: "streaming",
+            tabId: m.tabId,
+            original: m.original,
+          },
+        ]);
       } else if (m.type === "ASSIST_CHUNK") {
-        setS((p) => (p.id === m.id ? { ...p, streamed: p.streamed + m.delta } : p));
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === m.id
+              ? { ...msg, streamed: (msg.streamed ?? "") + m.delta }
+              : msg
+          )
+        );
       } else if (m.type === "ASSIST_DONE") {
-        setS((p) => (p.id === m.id ? { ...p, streamed: m.full, status: "done" } : p));
+        setActiveId(null);
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === m.id ? { ...msg, streamed: m.full, status: "done" } : msg
+          )
+        );
       } else if (m.type === "ASSIST_ERROR") {
-        setS((p) => (p.id === m.id ? { ...p, status: "error", error: m.error } : p));
+        setActiveId(null);
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === m.id
+              ? { ...msg, status: "error", error: m.error }
+              : msg
+          )
+        );
       }
     };
+
     port.onMessage.addListener(onMessage);
-    return () => { port.disconnect(); };
+    return () => {
+      port.disconnect();
+    };
   }, []);
 
-  const { code, notes } = useMemo(() => extractCode(s.streamed), [s.streamed]);
+  const isStreaming = activeId !== null;
 
-  const replace = async () => {
-    if (s.tabId < 0) return;
-    try { await chrome.tabs.sendMessage(s.tabId, { type: "REPLACE_SELECTION", text: code }); }
-    catch (e) { console.error(e); }
+  const handleReplace = async (tabId: number, text: string) => {
+    try {
+      await chrome.tabs.sendMessage(tabId, { type: "REPLACE_SELECTION", text });
+    } catch (e) {
+      console.error(e);
+    }
   };
-  const copy = async () => {
-    await navigator.clipboard.writeText(code);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1200);
+
+  const handleCopy = async (id: string, text: string) => {
+    await navigator.clipboard.writeText(text);
+    setCopied((prev) => ({ ...prev, [id]: true }));
+    setTimeout(() => setCopied((prev) => ({ ...prev, [id]: false })), 1200);
   };
-  const retry = () => {
-    if (s.tabId < 0) return;
-    chrome.tabs.sendMessage(s.tabId, { type: "TRIGGER_TOOLTIP" }).catch(() => {});
+
+  const handleRetry = (id: string) => {
+    const msg = messages.find((m) => m.id === id);
+    if (!msg || !msg.tabId || msg.tabId < 0) return;
+    if (!msg.original) return;
+    // Re-send the same code and action via PALETTE_FIRE
+    try {
+      chrome.tabs.sendMessage(msg.tabId, {
+        type: "PALETTE_FIRE",
+        action: msg.action ?? "improve",
+        freeText: msg.prompt,
+      } satisfies PaletteFire);
+    } catch {
+      /* tab may be closed */
+    }
   };
-  const stop = () => {
-    if (s.id) chrome.runtime.sendMessage({ type: "ASSIST_CANCEL", id: s.id }).catch(() => {});
+
+  const handleStop = (id: string) => {
+    chrome.runtime.sendMessage({ type: "ASSIST_CANCEL", id }).catch(() => {});
+  };
+
+  const handleNewConversation = async () => {
+    setMessages([]);
+    setActiveId(null);
+    setFilename(undefined);
+    setLanguage(undefined);
+    // Send CLEAR_HISTORY to whichever active tab we last knew about
+    const lastMsg = [...messages].reverse().find((m) => m.tabId !== undefined && m.tabId >= 0);
+    if (lastMsg?.tabId !== undefined && lastMsg.tabId >= 0) {
+      chrome.runtime.sendMessage({ type: "CLEAR_HISTORY", tabId: lastMsg.tabId }).catch(() => {});
+    }
+  };
+
+  const handleFollowUp = (action: Action, freeText?: string) => {
+    // Get the last known tabId from messages
+    const lastAssistant = [...messages].reverse().find(
+      (m) => m.role === "assistant" && m.tabId !== undefined && m.tabId >= 0
+    );
+    const tabId = lastAssistant?.tabId;
+
+    if (tabId !== undefined && tabId >= 0) {
+      chrome.tabs.sendMessage(tabId, {
+        type: "PALETTE_FIRE",
+        action,
+        freeText,
+      }).catch(() => {});
+    } else {
+      // Fall back to querying the active tab
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        const id = tabs[0]?.id;
+        if (id !== undefined) {
+          chrome.tabs.sendMessage(id, {
+            type: "PALETTE_FIRE",
+            action,
+            freeText,
+          }).catch(() => {});
+        }
+      });
+    }
   };
 
   return (
     <div className="flex h-full flex-col bg-[var(--bg)]">
-      <Header status={s.status} action={s.action} />
+      <Header
+        onNewConversation={handleNewConversation}
+        onSettings={() => chrome.runtime.openOptionsPage()}
+      />
 
-      <main className="flex min-h-0 flex-1 flex-col gap-3 px-3 pb-3">
-        {s.status === "error" && <ErrorBanner error={s.error ?? ""} />}
+      {(filename || language) && (
+        <FileContextBadge filename={filename} language={language} />
+      )}
 
-        {s.status === "idle" ? (
-          <EmptyState />
-        ) : (
-          <>
-            <Tabs tab={tab} setTab={setTab} hasOriginal={!!s.original} />
+      <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div className="flex-1 overflow-y-auto">
+          <MessageThread
+            messages={messages}
+            copied={copied}
+            onReplace={handleReplace}
+            onCopy={handleCopy}
+            onRetry={handleRetry}
+            onStop={handleStop}
+          />
+        </div>
 
-            <section className="flex min-h-0 flex-1 flex-col rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] overflow-hidden animate-fade">
-              <div className="flex-1 overflow-auto">
-                {tab === "output" && <CodeBlock text={code} />}
-                {tab === "diff" && <DiffView original={s.original} suggested={code} />}
-                {tab === "original" && <CodeBlock text={s.original} dim />}
-              </div>
-              {s.status === "streaming" && <StreamBar />}
-            </section>
-
-            {notes && (
-              <section className="rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] p-3 animate-fade">
-                <div className="mb-2 flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-neutral-500">
-                  <IconSparkle width={12} height={12} />
-                  Notes
-                </div>
-                <Notes text={notes} />
-              </section>
-            )}
-
-            <ActionBar
-              status={s.status}
-              hasCode={!!code}
-              copied={copied}
-              onReplace={replace}
-              onCopy={copy}
-              onRetry={retry}
-              onStop={stop}
-            />
-          </>
-        )}
+        <FollowUpInput disabled={isStreaming} onSubmit={handleFollowUp} />
       </main>
     </div>
   );
 }
 
-function Header({ status, action }: { status: Status; action: Action }) {
+function Header({
+  onNewConversation,
+  onSettings,
+}: {
+  onNewConversation: () => void;
+  onSettings: () => void;
+}) {
   return (
     <header className="sticky top-0 z-10 flex items-center justify-between border-b border-[var(--border)] bg-[var(--bg)]/90 backdrop-blur px-3 py-2.5">
       <div className="flex items-center gap-2">
         <div className="grid h-7 w-7 place-items-center rounded-lg bg-gradient-to-br from-indigo-500 to-violet-500 text-white shadow-sm">
           <IconSparkle width={14} height={14} />
         </div>
-        <div className="leading-tight">
-          <div className="text-[13px] font-semibold tracking-tight">AI Code Assistant</div>
-          <div className="text-[10.5px] text-neutral-500">
-            {status === "idle" ? "Ready" : ACTION_LABEL[action]}
-          </div>
-        </div>
+        <div className="text-[13px] font-semibold tracking-tight">AI Dev Assistant</div>
       </div>
       <div className="flex items-center gap-1.5">
-        <StatusPill status={status} />
         <button
-          onClick={() => chrome.runtime.openOptionsPage()}
+          onClick={onNewConversation}
+          title="New conversation"
+          className="grid h-7 w-7 place-items-center rounded-md border border-[var(--border)] bg-[var(--bg-elev)] text-neutral-300 hover:bg-[var(--bg-elev-2)] hover:text-white text-lg font-light"
+        >
+          +
+        </button>
+        <button
+          onClick={onSettings}
           title="Settings"
           className="grid h-7 w-7 place-items-center rounded-md border border-[var(--border)] bg-[var(--bg-elev)] text-neutral-300 hover:bg-[var(--bg-elev-2)] hover:text-white"
         >
@@ -153,135 +212,21 @@ function Header({ status, action }: { status: Status; action: Action }) {
   );
 }
 
-function StatusPill({ status }: { status: Status }) {
-  const cfg = {
-    idle:      { dot: "bg-neutral-500",  bg: "bg-neutral-800/60",  text: "text-neutral-400", label: "Idle" },
-    streaming: { dot: "bg-indigo-400",   bg: "bg-indigo-500/15",   text: "text-indigo-300",  label: "Streaming" },
-    done:      { dot: "bg-emerald-400",  bg: "bg-emerald-500/15",  text: "text-emerald-300", label: "Done" },
-    error:     { dot: "bg-rose-400",     bg: "bg-rose-500/15",     text: "text-rose-300",    label: "Error" },
-  }[status];
-  return (
-    <span className={`flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10.5px] font-medium ${cfg.bg} ${cfg.text}`}>
-      <span className={`h-1.5 w-1.5 rounded-full ${cfg.dot} ${status === "streaming" ? "dot-pulse" : ""}`} />
-      {cfg.label}
-    </span>
-  );
-}
-
-function Tabs({ tab, setTab, hasOriginal }: { tab: Tab; setTab: (t: Tab) => void; hasOriginal: boolean }) {
-  const tabs: { id: Tab; label: string }[] = [
-    { id: "output",   label: "Output" },
-    { id: "diff",     label: "Diff" },
-    ...(hasOriginal ? [{ id: "original" as Tab, label: "Original" }] : []),
-  ];
-  return (
-    <div className="mt-3 inline-flex gap-1 rounded-lg border border-[var(--border)] bg-[var(--bg-elev)] p-1">
-      {tabs.map((t) => (
-        <button
-          key={t.id}
-          onClick={() => setTab(t.id)}
-          className={`rounded-md px-3 py-1 text-[12px] font-medium transition-colors ${
-            tab === t.id
-              ? "bg-[var(--bg-elev-2)] text-white shadow-[0_0_0_1px_var(--border-strong)]"
-              : "text-neutral-400 hover:text-neutral-200"
-          }`}
-        >
-          {t.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function StreamBar() {
-  return <div className="h-0.5 w-full shimmer" />;
-}
-
-function ErrorBanner({ error }: { error: string }) {
-  const wantSettings = /missing api key|no provider/i.test(error);
-  return (
-    <div className="mt-3 flex items-start gap-2.5 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-[12px] text-rose-200 animate-fade">
-      <div className="grid h-5 w-5 shrink-0 place-items-center rounded-md bg-rose-500/20">!</div>
-      <div className="flex-1 space-y-2">
-        <div className="leading-relaxed">{error}</div>
-        {wantSettings && (
-          <button
-            onClick={() => chrome.runtime.openOptionsPage()}
-            className="rounded-md bg-rose-500/90 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-rose-500"
-          >
-            Open Settings
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function EmptyState() {
-  return (
-    <div className="mt-6 flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-[var(--border)] bg-[var(--bg-elev)]/40 p-8 text-center animate-fade">
-      <div className="grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-indigo-500/20 to-violet-500/20 text-indigo-300">
-        <IconSparkle width={20} height={20} />
-      </div>
-      <div className="space-y-1">
-        <div className="text-[13px] font-semibold">Ready to assist</div>
-        <p className="max-w-[260px] text-[12px] leading-relaxed text-neutral-400">
-          Select code in any editor on the page, then choose <b className="text-neutral-200">Fix</b>,{" "}
-          <b className="text-neutral-200">Improve</b>, <b className="text-neutral-200">Audit</b>, or{" "}
-          <b className="text-neutral-200">Debug</b> from the floating tooltip.
-        </p>
-      </div>
-      <kbd className="mt-1 rounded-md border border-[var(--border)] bg-[var(--bg-elev-2)] px-2 py-1 font-code text-[10.5px] text-neutral-300">
-        ⌘ ⇧ A
-      </kbd>
-    </div>
-  );
-}
-
-function ActionBar(props: {
-  status: Status; hasCode: boolean; copied: boolean;
-  onReplace: () => void; onCopy: () => void; onRetry: () => void; onStop: () => void;
-}) {
-  const { status, hasCode, copied, onReplace, onCopy, onRetry, onStop } = props;
-  return (
-    <div className="sticky bottom-0 -mx-3 -mb-3 flex items-center gap-2 border-t border-[var(--border)] bg-[var(--bg)]/95 px-3 py-2.5 backdrop-blur">
-      {status === "streaming" ? (
-        <Button variant="danger" onClick={onStop} icon={<IconStop />}>Stop</Button>
-      ) : (
-        <Button variant="primary" onClick={onReplace} disabled={status !== "done" || !hasCode} icon={<IconReplace />}>
-          Replace
-        </Button>
-      )}
-      <Button variant="ghost" onClick={onCopy} disabled={!hasCode} icon={copied ? <IconCheck /> : <IconCopy />}>
-        {copied ? "Copied" : "Copy"}
-      </Button>
-      <Button variant="ghost" onClick={onRetry} icon={<IconRetry />}>Retry</Button>
-    </div>
-  );
-}
-
-function Button({
-  variant, onClick, disabled, icon, children,
+function FileContextBadge({
+  filename,
+  language,
 }: {
-  variant: "primary" | "danger" | "ghost";
-  onClick: () => void;
-  disabled?: boolean;
-  icon?: React.ReactNode;
-  children: React.ReactNode;
+  filename?: string;
+  language?: string;
 }) {
-  const cls = {
-    primary: "bg-gradient-to-b from-indigo-500 to-indigo-600 text-white hover:from-indigo-400 hover:to-indigo-500 shadow-sm shadow-indigo-900/40",
-    danger:  "bg-gradient-to-b from-rose-500 to-rose-600 text-white hover:from-rose-400 hover:to-rose-500 shadow-sm shadow-rose-900/40",
-    ghost:   "border border-[var(--border)] bg-[var(--bg-elev)] text-neutral-200 hover:bg-[var(--bg-elev-2)]",
-  }[variant];
   return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-medium transition-all disabled:cursor-not-allowed disabled:opacity-40 ${cls}`}
-    >
-      {icon}
-      {children}
-    </button>
+    <div className="file-context-badge">
+      <span className="rounded bg-[var(--bg-elev-2)] px-1.5 py-0.5 font-code text-[10px]">
+        {filename ?? language ?? "unknown"}
+      </span>
+      {filename && language && (
+        <span className="text-[var(--text-faint)]">{language}</span>
+      )}
+    </div>
   );
 }
