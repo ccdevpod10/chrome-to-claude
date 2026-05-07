@@ -358,7 +358,14 @@ export function createResultPopup(h: PopupHandlers): ResultPopupApi {
   };
 }
 
-function actionLabel(a: Action) { return ({ fix: "Fix", improve: "Improve", audit: "Audit", debug: "Debug" } as const)[a]; }
+const ACTION_LABELS: Record<Action, string> = {
+  fix: "Fix", improve: "Improve", audit: "Audit", debug: "Debug",
+  review: "Review", explain: "Explain", "find-bugs": "Find Bugs",
+  generate: "Generate", "write-tests": "Write Tests", "write-docs": "Write Docs", scaffold: "Scaffold",
+  "debug-error": "Debug Error", trace: "Trace",
+} as const;
+
+function actionLabel(a: Action): string { return ACTION_LABELS[a] ?? a; }
 
 function renderBody(tab: Tab, original: string, code: string): string {
   if (tab === "output") return renderCode(code);

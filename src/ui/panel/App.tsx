@@ -27,6 +27,9 @@ const EMPTY: SessionState = {
 
 const ACTION_LABEL: Record<Action, string> = {
   fix: "Fix", improve: "Improve", audit: "Audit", debug: "Debug",
+  review: "Review", explain: "Explain", "find-bugs": "Find Bugs",
+  generate: "Generate", "write-tests": "Write Tests", "write-docs": "Write Docs", scaffold: "Scaffold",
+  "debug-error": "Debug Error", trace: "Trace",
 };
 
 export default function App() {
