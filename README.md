@@ -14,6 +14,11 @@ Results stream into the side panel with code blocks, Replace/Copy/Retry controls
 
 ![Side panel showing AI Dev Assistant with streamed review results](docs/screenshots/popup-panel.png)
 
+### Settings
+Configure primary/fallback providers, API keys, models, and base URLs — all stored in `chrome.storage.local`:
+
+![Settings panel showing provider configuration for OpenRouter, OpenAI, and Anthropic](docs/screenshots/settings.png)
+
 ## How It Works
 
 ```
